@@ -113,7 +113,9 @@ class ConfigManager:
                 'incremental': True,
                 'force_full_sync': False,
                 'batch_size': 50,  # 批量处理 VM 的数量
-                'node_batch_size': 10  # 预加载每个节点的 VM 配置数量
+                'node_batch_size': 10,  # 预加载每个节点的 VM 配置数量
+                'default_node_role': 'PVE',
+                'default_node_type': 'Standard Server'
             },
             'webhook': {
                 'enabled': False,
