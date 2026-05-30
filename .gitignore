@@ -1,0 +1,46 @@
+# Python __pycache__
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Sensitive config / environment files
+env.sh
+pbs_env.sh
+.env
+*.env.local
+config.yaml
+
+# State database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribution / build
+dist/
+build/
+*.egg-info/
+
+# Backup files
+*.bk
+*.bak

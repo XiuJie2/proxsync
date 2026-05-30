@@ -1,0 +1,14 @@
+# PBS Sync - Environment Variables (Example)
+# Copy this file to pbs_env.sh and fill in your actual credentials
+
+export NB_API_URL="https://netbox.example.com"
+export NB_API_TOKEN="your-netbox-api-token"
+
+export PBS_HOST="https://pbs.example.com:8007"
+export PBS_TOKEN_NAME="username@pam!token-name"
+export PBS_TOKEN_SECRET="your-pbs-token-secret"
+export PBS_VERIFY_SSL="false"
+
+# Telegram notifications (optional)
+export TELEGRAM_BOT_TOKEN="123456:ABC-DEF1234"
+export TELEGRAM_CHAT_ID="-1001234567890"
