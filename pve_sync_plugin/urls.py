@@ -3,7 +3,7 @@ PVE Sync Plugin URLs
 URL 路由配置
 """
 
-from django.urls import path, include
+from django.urls import path
 from django.contrib.auth.decorators import login_required
 from . import views
 
@@ -12,6 +12,7 @@ app_name = "pve_sync_plugin"
 urlpatterns = [
     # 仪表板
     path('', login_required(views.sync_dashboard), name='dashboard'),
+    path('trigger/', views.trigger_sync_view, name='trigger-sync'),
     
     # API 端点
     path('api/trigger/', views.trigger_sync, name='api-trigger'),

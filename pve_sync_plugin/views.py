@@ -3,13 +3,14 @@ PVE Sync Plugin Views
 提供 REST API 和页面视图
 """
 
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import redirect, render, get_object_or_404
 from django.contrib.auth.decorators import login_required, permission_required
-from django.http import JsonResponse, HttpResponse
+from django.contrib import messages
+from django.http import JsonResponse
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
-from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes as drf_permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -19,8 +20,8 @@ import hmac
 import hashlib
 
 from .models import PveSyncJob, PveWebhookEvent, PveBackupStatus, PveClusterConfig
-from .tasks import sync_pve_to_netbox, process_webhook_event
-from .utils import get_plugin_config, verify_webhook_signature
+from .tasks import enqueue_sync, enqueue_webhook_event
+from .utils import get_plugin_config
 
 
 @login_required
@@ -42,6 +43,20 @@ def sync_dashboard(request):
     return render(request, 'pve_sync/dashboard.html', context)
 
 
+@login_required
+@permission_required('pve_sync_plugin.add_pvesyncjob', raise_exception=True)
+@require_http_methods(["GET", "POST"])
+def trigger_sync_view(request):
+    """Web GUI endpoint for manually starting a sync."""
+    cluster_name = request.POST.get("cluster") or request.GET.get("cluster") or "default"
+    try:
+        job = _create_and_enqueue_sync_job(cluster_name, request.user, "manual")
+        messages.success(request, f"PVE 同步已排入背景任務，Job #{job.id}")
+    except Exception as exc:
+        messages.error(request, f"無法啟動同步: {exc}")
+    return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
+
+
 @api_view(['POST'])
 @drf_permission_classes([IsAuthenticated])
 def trigger_sync(request):
@@ -57,32 +72,13 @@ def trigger_sync(request):
     """
     try:
         cluster_name = request.data.get('cluster', 'default')
-        
-        # 验证集群配置
-        if cluster_name != 'default':
-            cluster_config = get_object_or_404(
-                PveClusterConfig, 
-                name=cluster_name, 
-                enabled=True
-            )
-        
-        # 异步执行同步（Celery）
-        task = sync_pve_to_netbox.delay(cluster_name=cluster_name)
-        
-        # 创建同步任务记录
-        job = PveSyncJob.objects.create(
-            cluster_name=cluster_name,
-            status='pending',
-            trigger='manual',
-            triggered_by=request.user,
-            details={'task_id': task.id}
-        )
+        job = _create_and_enqueue_sync_job(cluster_name, request.user, "api")
         
         return Response({
             'status': 'success',
             'message': f'同步任务已启动 (集群: {cluster_name})',
             'job_id': job.id,
-            'task_id': task.id,
+            'rq_job_id': job.details.get('rq_job_id'),
         }, status=status.HTTP_202_ACCEPTED)
         
     except Exception as e:
@@ -210,13 +206,13 @@ def webhook_receiver(request):
             raw_data=data
         )
         
-        # 异步处理事件（队列处理，避免阻塞 webhook 响应）
-        process_webhook_event.delay(event.id)
+        rq_job_id = enqueue_webhook_event(event)
         
         return JsonResponse({
             'status': 'success',
             'message': 'Webhook received',
             'event_id': event.id,
+            'rq_job_id': rq_job_id,
         })
         
     except json.JSONDecodeError:
@@ -307,3 +303,19 @@ def update_backup_status(request, vm_id):
         'status': 'success',
         'message': f'Backup status updated for {vm.name}',
     })
+
+
+def _create_and_enqueue_sync_job(cluster_name, user, trigger):
+    if cluster_name != 'default':
+        get_object_or_404(PveClusterConfig, name=cluster_name, enabled=True)
+
+    job = PveSyncJob.objects.create(
+        cluster_name=cluster_name,
+        status='pending',
+        trigger=trigger,
+        triggered_by=user if getattr(user, "is_authenticated", False) else None,
+        details={},
+    )
+    enqueue_sync(job)
+    job.refresh_from_db()
+    return job

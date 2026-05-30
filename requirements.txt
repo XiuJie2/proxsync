@@ -13,13 +13,9 @@ watchdog>=2.0.0  # 配置热重载
 # Database (SQLite is built-in, no extra needed)
 # For PostgreSQL/MySQL instead of SQLite: sqlalchemy, psycopg2-binary, pymysql
 
-# Async tasks (for NetBox plugin mode)
-celery>=5.2.0
-redis>=4.5.0  # as Celery broker (optional, can use other brokers)
-
 # NetBox plugin dependencies
 # Note: Django and other web框架 already provided by NetBox
-django-rq>=2.4.0  # Optional for background jobs if not using Celery
+django-rq>=2.4.0
 
 # Production dependencies
 gunicorn>=20.0.0  # if running standalone web service

@@ -391,6 +391,50 @@ Persistent=true
 WantedBy=timers.target
 ```
 
+## 🌐 NetBox 插件模式
+
+插件模式会在 NetBox 的 Plugins 菜单中提供 **PVE Sync** 页面，可在 Web GUI 中点击 **Sync now** 主动触发同步。同步任务会进入 NetBox RQ worker 的 `default` 队列，执行结果写入插件表。
+
+### 安装插件
+```bash
+cd /opt/pve-sync
+/opt/netbox/venv/bin/pip install -e .
+```
+
+### 启用插件
+在 NetBox `configuration.py` 中加入：
+```python
+PLUGINS = [
+    "pve_sync_plugin",
+]
+
+PLUGINS_CONFIG = {
+    "pve_sync_plugin": {
+        "pve_api_host": "172.17.202.195",
+        "pve_api_user": "root@pam",
+        "pve_api_token": "token-name",
+        "pve_api_secret": "token-secret",
+        "pve_api_verify_ssl": False,
+        "netbox_url": "https://netbox.example.com",
+        "netbox_token": "netbox-token",
+        "default_site": "Main Datacenter",
+        "default_netbox_cluster": "Proxmox Cluster",
+        "default_cluster_type": "Proxmox",
+        "default_node_role": "PVE",
+        "state_db_path": "/tmp/pve-sync-state.db",
+    }
+}
+```
+
+### 建表并重启
+```bash
+cd /opt/netbox/netbox
+/opt/netbox/venv/bin/python manage.py migrate pve_sync_plugin
+sudo systemctl restart netbox netbox-rq
+```
+
+访问：`/plugins/pve-sync/`
+
 ## 🐛 常见问题
 
 ### Q: 同步后 VM 名称被修改为 `vmname-100` 形式？

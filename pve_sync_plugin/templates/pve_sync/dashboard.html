@@ -1,3 +1,91 @@
-"""
-PVE Sync Plugin Templates
-"""
+{% extends 'base/layout.html' %}
+{% load helpers %}
+
+{% block title %}PVE Sync{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-8">
+    <h1>PVE Sync</h1>
+  </div>
+  <div class="col col-md-4 text-end">
+    <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline-flex gap-2">
+      {% csrf_token %}
+      <select name="cluster" class="form-select form-select-sm">
+        <option value="default">default</option>
+        {% for cluster in clusters %}
+          <option value="{{ cluster.name }}">{{ cluster.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-primary">
+        <i class="mdi mdi-sync"></i> Sync now
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="row mb-3">
+  <div class="col col-md-4">
+    <div class="card">
+      <h5 class="card-header">Pending Webhooks</h5>
+      <div class="card-body">
+        <span class="display-6">{{ pending_webhooks }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="col col-md-4">
+    <div class="card">
+      <h5 class="card-header">Backup Alerts</h5>
+      <div class="card-body">
+        <span class="display-6">{{ backup_alerts }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="col col-md-4">
+    <div class="card">
+      <h5 class="card-header">Clusters</h5>
+      <div class="card-body">
+        <span class="display-6">{{ clusters|length }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h5 class="card-header">Recent Sync Jobs</h5>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Cluster</th>
+          <th>Status</th>
+          <th>Trigger</th>
+          <th>Started</th>
+          <th>Finished</th>
+          <th>VMs</th>
+          <th>Alerts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in recent_jobs %}
+          <tr>
+            <td>#{{ job.id }}</td>
+            <td>{{ job.cluster_name }}</td>
+            <td>{{ job.get_status_display }}</td>
+            <td>{{ job.get_trigger_display }}</td>
+            <td>{{ job.start_time|annotated_date }}</td>
+            <td>{% if job.end_time %}{{ job.end_time|annotated_date }}{% else %}-{% endif %}</td>
+            <td>{{ job.success_vms }}/{{ job.total_vms }}</td>
+            <td>{{ job.nodes_offline|add:job.config_drifts|add:job.resource_alerts }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="8" class="text-muted">No sync jobs have been recorded.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

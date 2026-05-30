@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netbox-pve-sync"
+version = "1.0.0"
+description = "NetBox plugin and standalone sync tool for Proxmox VE inventory"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "PVE-NetBox Sync Maintainers"}
+]
+dependencies = [
+    "pynetbox>=6.0.0",
+    "proxmoxer>=2.0.0",
+    "requests>=2.25.0",
+    "urllib3>=1.26.0",
+    "PyYAML>=5.4.0",
+    "watchdog>=2.0.0",
+    "django-rq>=2.4.0",
+]
+classifiers = [
+    "Framework :: Django",
+    "Programming Language :: Python :: 3",
+]
+
+[tool.setuptools]
+py-modules = ["sync", "config", "state_db"]
+
+[tool.setuptools.packages.find]
+include = ["pve_sync_plugin*"]
+
+[tool.setuptools.package-data]
+pve_sync_plugin = ["templates/**/*.html"]

@@ -293,6 +293,11 @@ def init_config(config_file: str = None) -> ConfigManager:
         if config_file:
             _global_config = ConfigManager(config_file)
         else:
+            env_config_file = os.getenv('PVE_SYNC_CONFIG_FILE')
+            if env_config_file and Path(env_config_file).exists():
+                _global_config = ConfigManager(env_config_file)
+                return _global_config
+
             # 默认路径查找
             paths = [
                 '/etc/pve-sync/config.yaml',

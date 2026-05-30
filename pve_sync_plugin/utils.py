@@ -3,7 +3,6 @@ PVE Sync Plugin Utilities
 辅助函数
 """
 
-from django.conf import settings
 import os
 
 
@@ -16,12 +15,13 @@ def get_plugin_config(key, default=None):
     2. 环境变量
     3. 默认值
     """
-    # 尝试从 NetBox 插件配置获取（需要插件已加载）
     try:
-        from .plugin import PveSyncPluginConfig
-        # 实际实现中，配置通过插件系统提供
-        # 这里先使用环境变量作为回退
-    except:
+        from netbox.plugins import get_plugin_config as netbox_get_plugin_config
+
+        value = netbox_get_plugin_config("pve_sync_plugin", key)
+        if value not in (None, ""):
+            return value
+    except Exception:
         pass
     
     # 环境变量映射
@@ -34,6 +34,8 @@ def get_plugin_config(key, default=None):
         'webhook_secret': 'WEBHOOK_SECRET',
         'netbox_url': 'NB_API_URL',
         'netbox_token': 'NB_API_TOKEN',
+        'telegram_bot_token': 'TELEGRAM_BOT_TOKEN',
+        'telegram_chat_id': 'TELEGRAM_CHAT_ID',
     }
     
     env_key = env_mapping.get(key)
@@ -44,9 +46,3 @@ def get_plugin_config(key, default=None):
         return value
     
     return default
-
-
-def init_scheduler():
-    """初始化定时任务调度器（如果需要独立于 Celery）"""
-    # 可以在这里启动 APScheduler 或 Celery beat
-    pass
