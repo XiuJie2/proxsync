@@ -500,7 +500,7 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
             print(f"  建立設備類型失敗 {model_name}: {e}")
             return None
 
-    def get_or_create_device_role(self, role_name: str = "Hypervisor") -> Optional[int]:
+    def get_or_create_device_role(self, role_name: str = "PVE") -> Optional[int]:
         """獲取或建立 PVE 節點使用的實體設備角色。"""
         key = role_name.lower()
         if key in self.nb_cache['device_roles']:
@@ -704,6 +704,8 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
         print(f"    正在同步節點網路介面: {node_name}")
         device_id = device.id
         device_interfaces = self.nb_cache['device_interfaces'].get(device_id, {})
+        primary_ip = None
+        fallback_ip = None
         for iface_data in network_data:
             iface_name = iface_data.get('iface')
             if not iface_name:
@@ -752,7 +754,12 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
                     continue
             cidr = iface_data.get('cidr')
             if cidr:
-                self.assign_ip_to_interface(nb_iface, cidr, dns_name=f"{node_name}.local", is_vm_interface=False)
+                ip_obj = self.assign_ip_to_interface(nb_iface, cidr, dns_name=f"{node_name}.local", is_vm_interface=False)
+                if ip_obj and not fallback_ip:
+                    fallback_ip = ip_obj
+                if ip_obj and str(cidr).startswith('172.17.') and not primary_ip:
+                    primary_ip = ip_obj
+        return primary_ip or fallback_ip
 
     # ---------- 節點同步 ----------
     def sync_pve_nodes_to_netbox(self) -> Tuple[bool, Dict[str, Any], Dict]:
@@ -772,7 +779,7 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
         print(f"  使用集群: {cluster['name']} (ID: {cluster['id']})")
         devices = {}
         success_count = 0
-        default_device_role = self.sync_config.get('default_node_role', 'Hypervisor')
+        default_device_role = self.sync_config.get('default_node_role', 'PVE')
         default_device_type = self.sync_config.get('default_node_type', 'Standard Server')
         for node in self.pve_cache['nodes']:
             node_name = node['node']
@@ -791,7 +798,7 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
                 try:
                     device = self.nb_api.dcim.devices.create(
                         name=node_name,
-                        device_role=device_role_id,
+                        role=device_role_id,
                         device_type=device_type_id,
                         site=site_id,
                         status='active' if node_status == 'online' else 'offline',
@@ -840,7 +847,11 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
             try:
                 network_data = self.pve_api.nodes(node_name).network.get()
                 if network_data:
-                    self.sync_node_network_interfaces(device, node_name, network_data)
+                    primary_ip = self.sync_node_network_interfaces(device, node_name, network_data)
+                    if primary_ip:
+                        device.primary_ip4 = primary_ip.id
+                        device.save()
+                        print(f"    已設置主 IPv4: {primary_ip.address}")
             except Exception as e:
                 print(f"  獲取節點網路資訊失敗: {e}")
             devices[node_name.lower()] = device
