@@ -452,6 +452,78 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
             print(f"處理站點失敗: {e}")
             return None
 
+    def get_or_create_manufacturer(self, name: str = "Generic") -> Optional[int]:
+        """獲取或建立廠商。"""
+        key = name.lower()
+        if key in self.nb_cache['manufacturers']:
+            return self.nb_cache['manufacturers'][key].id
+        try:
+            manufacturers = list(self.nb_api.dcim.manufacturers.filter(name=name))
+            if manufacturers:
+                manufacturer = manufacturers[0]
+                self.nb_cache['manufacturers'][key] = manufacturer
+                return manufacturer.id
+            slug = name.lower().replace(' ', '-').replace('/', '-')[:50]
+            manufacturer = self.nb_api.dcim.manufacturers.create(name=name, slug=slug)
+            self.nb_cache['manufacturers'][key] = manufacturer
+            return manufacturer.id
+        except Exception as e:
+            print(f"  建立廠商失敗 {name}: {e}")
+            return None
+
+    def get_or_create_device_type(self, model_name: str = "Standard Server") -> Optional[int]:
+        """獲取或建立設備類型，供自動建立 PVE 節點設備使用。"""
+        key = model_name.lower()
+        if key in self.nb_cache['device_types']:
+            return self.nb_cache['device_types'][key].id
+        try:
+            device_types = list(self.nb_api.dcim.device_types.filter(model=model_name))
+            if device_types:
+                device_type = device_types[0]
+                self.nb_cache['device_types'][key] = device_type
+                return device_type.id
+            manufacturer_id = self.get_or_create_manufacturer("Generic")
+            if not manufacturer_id:
+                print(f"  警告: 無法取得廠商，跳過建立設備類型 {model_name}")
+                return None
+            slug = model_name.lower().replace(' ', '-').replace('/', '-')[:50]
+            device_type = self.nb_api.dcim.device_types.create(
+                model=model_name,
+                slug=slug,
+                manufacturer=manufacturer_id,
+                u_height=1,
+                is_full_depth=False
+            )
+            self.nb_cache['device_types'][key] = device_type
+            return device_type.id
+        except Exception as e:
+            print(f"  建立設備類型失敗 {model_name}: {e}")
+            return None
+
+    def get_or_create_device_role(self, role_name: str = "Hypervisor") -> Optional[int]:
+        """獲取或建立 PVE 節點使用的實體設備角色。"""
+        key = role_name.lower()
+        if key in self.nb_cache['device_roles']:
+            return self.nb_cache['device_roles'][key].id
+        try:
+            roles = list(self.nb_api.dcim.device_roles.filter(name=role_name))
+            if roles:
+                role = roles[0]
+                self.nb_cache['device_roles'][key] = role
+                return role.id
+            slug = role_name.lower().replace(' ', '-').replace('/', '-')[:50]
+            role = self.nb_api.dcim.device_roles.create(
+                name=role_name,
+                slug=slug,
+                color="c0c0c0",
+                vm_role=False
+            )
+            self.nb_cache['device_roles'][key] = role
+            return role.id
+        except Exception as e:
+            print(f"  建立設備角色失敗 {role_name}: {e}")
+            return None
+
     def get_or_create_cluster_type(self, cluster_type_name: str = "Proxmox") -> Optional[int]:
         key = cluster_type_name.lower()
         if key in self.nb_cache['cluster_types']:
@@ -700,13 +772,36 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
         print(f"  使用集群: {cluster['name']} (ID: {cluster['id']})")
         devices = {}
         success_count = 0
+        default_device_role = self.sync_config.get('default_node_role', 'Hypervisor')
+        default_device_type = self.sync_config.get('default_node_type', 'Standard Server')
         for node in self.pve_cache['nodes']:
             node_name = node['node']
             node_status = node.get('status', 'unknown')
             device = self.nb_cache['devices'].get(node_name.lower())
             if not device:
-                print(f"  ✗ 找不到設備: {node_name}")
-                continue
+                print(f"  → 設備 {node_name} 不存在，嘗試自動建立...")
+                device_role_id = self.get_or_create_device_role(default_device_role)
+                if not device_role_id:
+                    print(f"  ✗ 無法取得設備角色，跳過節點 {node_name}")
+                    continue
+                device_type_id = self.get_or_create_device_type(default_device_type)
+                if not device_type_id:
+                    print(f"  ✗ 無法取得設備類型，跳過節點 {node_name}")
+                    continue
+                try:
+                    device = self.nb_api.dcim.devices.create(
+                        name=node_name,
+                        device_role=device_role_id,
+                        device_type=device_type_id,
+                        site=site_id,
+                        status='active' if node_status == 'online' else 'offline',
+                        cluster=cluster['id']
+                    )
+                    self.nb_cache['devices'][node_name.lower()] = device
+                    print(f"  ✓ 成功建立設備: {node_name} (ID: {device.id})")
+                except Exception as e:
+                    print(f"  ✗ 建立設備失敗 {node_name}: {e}")
+                    continue
             # 節點離線檢測（略）
             # 更新設備狀態
             try:
