@@ -17,7 +17,7 @@ class PveSyncPluginConfig(PluginConfig):
 
     middleware = []
     queues = ["default"]
-    template_extensions = "pve_sync_plugin.template_content.template_extensions"
+    template_extensions = "template_content.template_extensions"
 
     required_settings = []
     default_settings = {
