@@ -11,10 +11,24 @@ def get_plugin_config(key, default=None):
     从 NetBox 插件配置获取设置
     
     优先级:
-    1. NetBox 插件配置 (通过插件系统)
-    2. 环境变量
-    3. 默认值
+    1. NetBox Web GUI settings stored in the plugin database table
+    2. NetBox PLUGINS_CONFIG
+    3. 环境变量
+    4. 默认值
     """
+    try:
+        from .models import PvePluginSettings
+
+        settings = PvePluginSettings.objects.filter(pk=1).first()
+        if settings is not None and hasattr(settings, key):
+            value = getattr(settings, key)
+            if isinstance(value, bool):
+                return value
+            if value not in (None, ""):
+                return value
+    except Exception:
+        pass
+
     try:
         from netbox.plugins import get_plugin_config as netbox_get_plugin_config
 

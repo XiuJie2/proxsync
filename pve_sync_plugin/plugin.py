@@ -42,4 +42,5 @@ class PveSyncPluginConfig(PluginConfig):
     }
 
     def ready(self):
+        super().ready()
         import pve_sync_plugin.signals  # noqa: F401

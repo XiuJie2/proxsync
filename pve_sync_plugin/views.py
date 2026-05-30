@@ -19,8 +19,14 @@ import json
 import hmac
 import hashlib
 
-from .forms import PveClusterConfigForm
-from .models import PveSyncJob, PveWebhookEvent, PveBackupStatus, PveClusterConfig
+from .forms import PveClusterConfigForm, PvePluginSettingsForm
+from .models import (
+    PveSyncJob,
+    PveWebhookEvent,
+    PveBackupStatus,
+    PveClusterConfig,
+    PvePluginSettings,
+)
 from .tasks import enqueue_sync, enqueue_webhook_event
 from .utils import get_plugin_config
 
@@ -131,6 +137,24 @@ def cluster_config_edit(request, pk):
         form = PveClusterConfigForm(instance=cluster)
 
     return render(request, "pve_sync/cluster_form.html", {"form": form, "cluster": cluster})
+
+
+@login_required
+@permission_required('pve_sync_plugin.change_pvepluginsettings', raise_exception=True)
+@require_http_methods(["GET", "POST"])
+def plugin_settings(request):
+    """Edit singleton plugin settings from the NetBox Web UI."""
+    settings_obj = PvePluginSettings.load()
+    if request.method == "POST":
+        form = PvePluginSettingsForm(request.POST, instance=settings_obj)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "PVE Sync 設定已更新")
+            return redirect(reverse("plugins:pve_sync_plugin:settings"))
+    else:
+        form = PvePluginSettingsForm(instance=settings_obj)
+
+    return render(request, "pve_sync/settings.html", {"form": form})
 
 
 @api_view(['POST'])

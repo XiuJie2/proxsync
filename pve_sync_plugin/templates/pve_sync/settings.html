@@ -1,0 +1,33 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}PVE Sync Settings{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-8">
+    <h1>PVE Sync Settings</h1>
+    <div class="text-muted">Plugin-wide defaults used by the default sync profile</div>
+  </div>
+  <div class="col col-md-4 text-end">
+    <a href="{% url 'plugins:pve_sync_plugin:dashboard' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="mdi mdi-view-dashboard"></i> Dashboard
+    </a>
+    <a href="{% url 'plugins:pve_sync_plugin:cluster-list' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="mdi mdi-server-network"></i> Clusters
+    </a>
+  </div>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+    <h5 class="card-header">Global Settings</h5>
+    <div class="card-body">
+      {{ form.as_p }}
+    </div>
+    <div class="card-footer text-end">
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</form>
+{% endblock %}

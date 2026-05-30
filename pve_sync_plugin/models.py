@@ -206,6 +206,51 @@ class PveBackupStatus(models.Model):
         return self.backup_age_days > max_age_days
 
 
+class PvePluginSettings(models.Model):
+    """Singleton settings editable from the NetBox Web UI."""
+
+    pve_api_host = models.CharField(max_length=200, blank=True)
+    pve_api_user = models.CharField(max_length=100, default="root@pam")
+    pve_api_token = models.CharField(max_length=100, blank=True)
+    pve_api_secret = models.CharField(max_length=200, blank=True)
+    pve_api_verify_ssl = models.BooleanField(default=False)
+
+    netbox_url = models.URLField(blank=True)
+    netbox_token = models.CharField(max_length=200, blank=True)
+
+    telegram_bot_token = models.CharField(max_length=200, blank=True)
+    telegram_chat_id = models.CharField(max_length=100, blank=True)
+    webhook_secret = models.CharField(max_length=200, blank=True)
+
+    default_cluster_name = models.CharField(max_length=100, default="default")
+    default_netbox_cluster = models.CharField(max_length=100, default="Proxmox Cluster")
+    default_site = models.CharField(max_length=100, default="Main Datacenter")
+    default_cluster_type = models.CharField(max_length=100, default="Proxmox")
+    default_node_role = models.CharField(max_length=100, default="PVE")
+    default_node_type = models.CharField(max_length=100, default="Standard Server")
+
+    state_db_path = models.CharField(max_length=500, default="/var/lib/netbox/pve-sync-state.db")
+    enable_backup_sync = models.BooleanField(default=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "PVE Sync Settings"
+        verbose_name_plural = "PVE Sync Settings"
+
+    def __str__(self):
+        return "PVE Sync Settings"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        return super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        settings, _ = cls.objects.get_or_create(pk=1)
+        return settings
+
+
 class PveClusterConfig(models.Model):
     """多集群配置"""
     

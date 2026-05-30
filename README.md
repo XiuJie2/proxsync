@@ -415,22 +415,17 @@ PLUGINS = [
 ]
 
 PLUGINS_CONFIG = {
-    "pve_sync_plugin": {
-        "pve_api_host": "172.17.202.195",
-        "pve_api_user": "root@pam",
-        "pve_api_token": "token-name",
-        "pve_api_secret": "token-secret",
-        "pve_api_verify_ssl": False,
-        "netbox_url": "https://netbox.example.com",
-        "netbox_token": "netbox-token",
-        "default_site": "Main Datacenter",
-        "default_netbox_cluster": "Proxmox Cluster",
-        "default_cluster_type": "Proxmox",
-        "default_node_role": "PVE",
-        "state_db_path": "/tmp/pve-sync-state.db",
-    }
+    "pve_sync_plugin": {}
 }
 ```
+
+PVE API、NetBox API、Telegram、默认站点/集群、state DB 等参数可以在 Web GUI 设置：
+`Plugins → PVE Sync → Settings`
+
+多 PVE 集群连接配置在：
+`Plugins → PVE Sync → PVE Clusters`
+
+`PLUGINS_CONFIG` 仍可作为 fallback 使用；优先级为 Web GUI 设置 → `PLUGINS_CONFIG` → 环境变量 → 默认值。
 
 ### 建表并重启
 ```bash
@@ -441,10 +436,23 @@ sudo systemctl restart netbox netbox-rq
 
 访问：
 - Dashboard: `/plugins/pve-sync/`
+- Settings: `/plugins/pve-sync/settings/`
 - Cluster profiles: `/plugins/pve-sync/clusters/`
 - API trigger: `POST /api/plugins/pve-sync/trigger/`
 
 如果使用 Docker 部署，必须确认 NetBox Web 容器和 worker 容器都安装了本插件，并且两者都加载相同的 `PLUGINS` / `PLUGINS_CONFIG`。
+
+### 使用插件命令排程
+如果仍希望保留 cron/systemd 排程，建议改用插件提供的 management command，让排程、Web GUI、API 都写入同一套 `PveSyncJob` 记录：
+```bash
+cd /opt/netbox/netbox
+/opt/netbox/venv/bin/python manage.py pve_sync --cluster default
+```
+
+等待任务完成并返回失败码：
+```bash
+/opt/netbox/venv/bin/python manage.py pve_sync --cluster production --wait --timeout 7200
+```
 
 ## 🐛 常见问题
 
