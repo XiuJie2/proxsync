@@ -11,8 +11,8 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("dcim", "0001_initial"),
-        ("virtualization", "0001_initial"),
+        ("dcim", "__latest__"),
+        ("virtualization", "__latest__"),
     ]
 
     operations = [
@@ -232,4 +232,3 @@ class Migration(migrations.Migration):
             index=models.Index(fields=["received_at"], name="pve_sync_pv_receive_ce4cf2_idx"),
         ),
     ]
-
