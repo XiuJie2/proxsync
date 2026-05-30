@@ -395,6 +395,12 @@ WantedBy=timers.target
 
 插件模式会在 NetBox 的 Plugins 菜单中提供 **PVE Sync** 页面，可在 Web GUI 中点击 **Sync now** 主动触发同步。同步任务会进入 NetBox RQ worker 的 `default` 队列，执行结果写入插件表。
 
+插件同时提供：
+- **PVE Sync dashboard**：查看最近同步任务并手动触发同步
+- **PVE Clusters**：在 NetBox Web GUI 中维护 PVE 连接配置
+- **VM 详情页按钮**：在 Virtual Machine 页面顶部直接点击 **PVE Sync**
+- **标准 REST API**：`/api/plugins/pve-sync/trigger/`
+
 ### 安装插件
 ```bash
 cd /opt/pve-sync
@@ -433,7 +439,12 @@ cd /opt/netbox/netbox
 sudo systemctl restart netbox netbox-rq
 ```
 
-访问：`/plugins/pve-sync/`
+访问：
+- Dashboard: `/plugins/pve-sync/`
+- Cluster profiles: `/plugins/pve-sync/clusters/`
+- API trigger: `POST /api/plugins/pve-sync/trigger/`
+
+如果使用 Docker 部署，必须确认 NetBox Web 容器和 worker 容器都安装了本插件，并且两者都加载相同的 `PLUGINS` / `PLUGINS_CONFIG`。
 
 ## 🐛 常见问题
 

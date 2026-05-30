@@ -1,0 +1,25 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}{% if cluster %}Edit{% else %}Add{% endif %} PVE Cluster{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col">
+    <h1>{% if cluster %}Edit{% else %}Add{% endif %} PVE Cluster</h1>
+  </div>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+    <h5 class="card-header">Connection</h5>
+    <div class="card-body">
+      {{ form.as_p }}
+    </div>
+    <div class="card-footer text-end">
+      <a href="{% url 'plugins:pve_sync_plugin:cluster-list' %}" class="btn btn-outline-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</form>
+{% endblock %}

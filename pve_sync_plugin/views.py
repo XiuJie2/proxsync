@@ -19,6 +19,7 @@ import json
 import hmac
 import hashlib
 
+from .forms import PveClusterConfigForm
 from .models import PveSyncJob, PveWebhookEvent, PveBackupStatus, PveClusterConfig
 from .tasks import enqueue_sync, enqueue_webhook_event
 from .utils import get_plugin_config
@@ -55,6 +56,81 @@ def trigger_sync_view(request):
     except Exception as exc:
         messages.error(request, f"無法啟動同步: {exc}")
     return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
+
+
+@login_required
+@permission_required('pve_sync_plugin.add_pvesyncjob', raise_exception=True)
+@require_http_methods(["POST"])
+def trigger_vm_sync_view(request, vm_id):
+    """Queue a sync from a VM detail page."""
+    from virtualization.models import VirtualMachine
+
+    vm = get_object_or_404(VirtualMachine, pk=vm_id)
+    cluster_name = _resolve_cluster_name_for_vm(vm)
+
+    try:
+        job = _create_and_enqueue_sync_job(
+            cluster_name,
+            request.user,
+            "manual",
+            details={
+                "vm_id": vm.pk,
+                "vm_name": vm.name,
+                "source": "vm_detail",
+            },
+        )
+        messages.success(request, f"{vm.name} 的 PVE 同步已排入背景任務，Job #{job.id}")
+    except Exception as exc:
+        messages.error(request, f"無法啟動 {vm.name} 的同步: {exc}")
+
+    return redirect(request.POST.get("return_url") or vm.get_absolute_url())
+
+
+@login_required
+@permission_required('pve_sync_plugin.view_pveclusterconfig', raise_exception=True)
+def cluster_config_list(request):
+    """List configured PVE clusters."""
+    clusters = PveClusterConfig.objects.select_related(
+        "netbox_site",
+        "netbox_cluster_type",
+        "netbox_cluster",
+    )
+    return render(request, "pve_sync/cluster_list.html", {"clusters": clusters})
+
+
+@login_required
+@permission_required('pve_sync_plugin.add_pveclusterconfig', raise_exception=True)
+@require_http_methods(["GET", "POST"])
+def cluster_config_add(request):
+    """Create a PVE cluster config from the plugin UI."""
+    if request.method == "POST":
+        form = PveClusterConfigForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "PVE 集群配置已建立")
+            return redirect(reverse("plugins:pve_sync_plugin:cluster-list"))
+    else:
+        form = PveClusterConfigForm()
+
+    return render(request, "pve_sync/cluster_form.html", {"form": form, "cluster": None})
+
+
+@login_required
+@permission_required('pve_sync_plugin.change_pveclusterconfig', raise_exception=True)
+@require_http_methods(["GET", "POST"])
+def cluster_config_edit(request, pk):
+    """Edit a PVE cluster config from the plugin UI."""
+    cluster = get_object_or_404(PveClusterConfig, pk=pk)
+    if request.method == "POST":
+        form = PveClusterConfigForm(request.POST, instance=cluster)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "PVE 集群配置已更新")
+            return redirect(reverse("plugins:pve_sync_plugin:cluster-list"))
+    else:
+        form = PveClusterConfigForm(instance=cluster)
+
+    return render(request, "pve_sync/cluster_form.html", {"form": form, "cluster": cluster})
 
 
 @api_view(['POST'])
@@ -305,7 +381,7 @@ def update_backup_status(request, vm_id):
     })
 
 
-def _create_and_enqueue_sync_job(cluster_name, user, trigger):
+def _create_and_enqueue_sync_job(cluster_name, user, trigger, details=None):
     if cluster_name != 'default':
         get_object_or_404(PveClusterConfig, name=cluster_name, enabled=True)
 
@@ -314,8 +390,19 @@ def _create_and_enqueue_sync_job(cluster_name, user, trigger):
         status='pending',
         trigger=trigger,
         triggered_by=user if getattr(user, "is_authenticated", False) else None,
-        details={},
+        details=details or {},
     )
     enqueue_sync(job)
     job.refresh_from_db()
     return job
+
+
+def _resolve_cluster_name_for_vm(vm):
+    if getattr(vm, "cluster_id", None):
+        cluster = PveClusterConfig.objects.filter(
+            netbox_cluster_id=vm.cluster_id,
+            enabled=True,
+        ).first()
+        if cluster:
+            return cluster.name
+    return "default"

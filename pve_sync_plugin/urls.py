@@ -13,6 +13,10 @@ urlpatterns = [
     # 仪表板
     path('', login_required(views.sync_dashboard), name='dashboard'),
     path('trigger/', views.trigger_sync_view, name='trigger-sync'),
+    path('virtual-machines/<int:vm_id>/sync/', views.trigger_vm_sync_view, name='trigger-vm-sync'),
+    path('clusters/', views.cluster_config_list, name='cluster-list'),
+    path('clusters/add/', views.cluster_config_add, name='cluster-add'),
+    path('clusters/<int:pk>/edit/', views.cluster_config_edit, name='cluster-edit'),
     
     # API 端点
     path('api/trigger/', views.trigger_sync, name='api-trigger'),

@@ -1,0 +1,70 @@
+{% extends 'base/layout.html' %}
+{% load helpers %}
+
+{% block title %}PVE Clusters{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-8">
+    <h1>PVE Clusters</h1>
+    <div class="text-muted">Connection profiles used by manual sync and VM page actions</div>
+  </div>
+  <div class="col col-md-4 text-end">
+    <a href="{% url 'plugins:pve_sync_plugin:dashboard' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="mdi mdi-view-dashboard"></i> Dashboard
+    </a>
+    <a href="{% url 'plugins:pve_sync_plugin:cluster-add' %}" class="btn btn-sm btn-primary">
+      <i class="mdi mdi-plus-thick"></i> Add cluster
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <h5 class="card-header">Configured Clusters</h5>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>PVE Host</th>
+          <th>NetBox Cluster</th>
+          <th>Enabled</th>
+          <th>Last Sync</th>
+          <th>Status</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cluster in clusters %}
+          <tr>
+            <td>{{ cluster.name }}</td>
+            <td>{{ cluster.pve_host }}</td>
+            <td>{{ cluster.netbox_cluster|placeholder }}</td>
+            <td>{{ cluster.enabled|yesno:"Yes,No" }}</td>
+            <td>{% if cluster.last_sync %}{{ cluster.last_sync|annotated_date }}{% else %}-{% endif %}</td>
+            <td>{{ cluster.last_sync_status|default:"-" }}</td>
+            <td class="text-end">
+              <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="cluster" value="{{ cluster.name }}">
+                <button type="submit" class="btn btn-sm btn-primary">
+                  <i class="mdi mdi-sync"></i> Sync
+                </button>
+              </form>
+              <a href="{% url 'plugins:pve_sync_plugin:cluster-edit' cluster.pk %}" class="btn btn-sm btn-outline-secondary">
+                <i class="mdi mdi-pencil"></i> Edit
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7" class="text-muted">
+              No cluster configs exist. The plugin can still use PLUGINS_CONFIG or environment variables through the default profile.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

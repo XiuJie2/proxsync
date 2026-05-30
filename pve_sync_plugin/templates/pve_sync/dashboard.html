@@ -7,6 +7,7 @@
 <div class="row mb-3">
   <div class="col col-md-8">
     <h1>PVE Sync</h1>
+    <div class="text-muted">Manual Proxmox VE to NetBox synchronization</div>
   </div>
   <div class="col col-md-4 text-end">
     <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline-flex gap-2">
@@ -20,6 +21,9 @@
       <button type="submit" class="btn btn-sm btn-primary">
         <i class="mdi mdi-sync"></i> Sync now
       </button>
+      <a href="{% url 'plugins:pve_sync_plugin:cluster-list' %}" class="btn btn-sm btn-outline-secondary">
+        <i class="mdi mdi-server-network"></i> Clusters
+      </a>
     </form>
   </div>
 </div>

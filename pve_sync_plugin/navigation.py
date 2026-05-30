@@ -35,4 +35,18 @@ menu_items = (
             ),
         ),
     ),
+    PluginMenuItem(
+        link="plugins:pve_sync_plugin:cluster-list",
+        link_text="PVE Clusters",
+        permissions=["pve_sync_plugin.view_pveclusterconfig"],
+        buttons=(
+            PluginMenuButton(
+                "plugins:pve_sync_plugin:cluster-add",
+                "Add cluster",
+                "mdi mdi-plus-thick",
+                _button_color("GREEN", "green"),
+                permissions=["pve_sync_plugin.add_pveclusterconfig"],
+            ),
+        ),
+    ),
 )
