@@ -78,6 +78,7 @@
             <tr>
               <th>Name</th>
               <th>Host</th>
+              <th>Schedule</th>
               <th>Last Sync</th>
               <th>Status</th>
             </tr>
@@ -87,6 +88,23 @@
             <tr>
               <td><a href="{{ c.get_absolute_url }}">{{ c.name }}</a></td>
               <td>{{ c.pve_host }}</td>
+              <td>
+                <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_edit' c.pk %}" title="Edit schedule">
+                  {% if c.sync_schedule == 'disabled' or not c.sync_schedule %}
+                    <span class="text-muted">—</span>
+                  {% elif c.sync_schedule == 'hourly' %}
+                    <span class="badge text-bg-info">Hourly</span>
+                  {% elif c.sync_schedule == 'every_6h' %}
+                    <span class="badge text-bg-info">Every 6h</span>
+                  {% elif c.sync_schedule == 'daily' %}
+                    <span class="badge text-bg-secondary">Daily</span>
+                  {% elif c.sync_schedule == 'weekly' %}
+                    <span class="badge text-bg-secondary">Weekly</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">{{ c.get_sync_schedule_display }}</span>
+                  {% endif %}
+                </a>
+              </td>
               <td>{% if c.last_sync %}{{ c.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
               <td>
                 {% if c.last_sync_status == 'success' %}
