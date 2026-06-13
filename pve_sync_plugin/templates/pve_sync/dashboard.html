@@ -1,62 +1,141 @@
 {% extends 'base/layout.html' %}
 {% load helpers %}
+{% load pve_sync_tags %}
 
-{% block title %}PVE Sync{% endblock %}
+{% block title %}PVE Sync Dashboard{% endblock %}
 
 {% block content %}
 <div class="row mb-3">
   <div class="col col-md-8">
-    <h1>PVE Sync</h1>
-    <div class="text-muted">Manual Proxmox VE to NetBox synchronization</div>
+    <h1><i class="mdi mdi-server-network text-primary"></i> PVE Sync Dashboard</h1>
+    <div class="text-muted">Proxmox VE to NetBox synchronization overview</div>
   </div>
   <div class="col col-md-4 text-end">
     <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline-flex gap-2">
       {% csrf_token %}
-      <select name="cluster" class="form-select form-select-sm">
+      <select name="cluster" class="form-select form-select-sm" style="width: auto;">
         <option value="default">default</option>
         {% for cluster in clusters %}
           <option value="{{ cluster.name }}">{{ cluster.name }}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="btn btn-sm btn-primary">
-        <i class="mdi mdi-sync"></i> Sync now
+      <button type="submit" class="btn btn-sm btn-success">
+        <i class="mdi mdi-sync"></i> Sync Now
       </button>
-      <a href="{% url 'plugins:pve_sync_plugin:cluster-list' %}" class="btn btn-sm btn-outline-secondary">
-        <i class="mdi mdi-server-network"></i> Clusters
-      </a>
     </form>
   </div>
 </div>
 
-<div class="row mb-3">
-  <div class="col col-md-4">
-    <div class="card">
-      <h5 class="card-header">Pending Webhooks</h5>
-      <div class="card-body">
-        <span class="display-6">{{ pending_webhooks }}</span>
+{# Summary cards #}
+<div class="row mb-4">
+  <div class="col-md-3">
+    <div class="card shadow-sm">
+      <div class="card-body text-center">
+        <div class="display-6 text-primary">{{ total_jobs|default:"0" }}</div>
+        <div class="text-muted">Total Jobs</div>
       </div>
     </div>
   </div>
-  <div class="col col-md-4">
-    <div class="card">
-      <h5 class="card-header">Backup Alerts</h5>
-      <div class="card-body">
-        <span class="display-6">{{ backup_alerts }}</span>
+  <div class="col-md-3">
+    <div class="card shadow-sm">
+      <div class="card-body text-center">
+        <div class="display-6 text-success">{{ success_jobs|default:"0" }}</div>
+        <div class="text-muted">Successful</div>
       </div>
     </div>
   </div>
-  <div class="col col-md-4">
-    <div class="card">
-      <h5 class="card-header">Clusters</h5>
-      <div class="card-body">
-        <span class="display-6">{{ clusters|length }}</span>
+  <div class="col-md-3">
+    <div class="card shadow-sm">
+      <div class="card-body text-center">
+        <div class="display-6 text-danger">{{ failed_jobs|default:"0" }}</div>
+        <div class="text-muted">Failed</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm">
+      <div class="card-body text-center">
+        <div class="display-6 text-warning">{{ pending_webhooks|default:"0" }}</div>
+        <div class="text-muted">Pending Webhooks</div>
       </div>
     </div>
   </div>
 </div>
 
-<div class="card">
-  <h5 class="card-header">Recent Sync Jobs</h5>
+{# Status row #}
+<div class="row mb-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <h5 class="card-header bg-transparent">
+        <i class="mdi mdi-server"></i> Active Clusters
+      </h5>
+      <div class="card-body">
+        {% if clusters %}
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Host</th>
+              <th>Schedule</th>
+              <th>Last Sync</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in clusters %}
+            <tr>
+              <td><a href="{{ c.get_absolute_url }}">{{ c.name }}</a></td>
+              <td>{{ c.pve_host }}</td>
+              <td>{{ c.get_sync_schedule_display }}</td>
+              <td>{% if c.last_sync %}{{ c.last_sync|annotated_date }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
+              <td>
+                {% if c.last_sync_status == 'success' %}
+                  <span class="badge text-bg-success">Success</span>
+                {% elif c.last_sync_status == 'failed' %}
+                  <span class="badge text-bg-danger">Failed</span>
+                {% elif c.last_sync_status %}
+                  <span class="badge text-bg-secondary">{{ c.last_sync_status }}</span>
+                {% else %}
+                  <span class="badge text-bg-info">New</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <p class="text-muted mb-0">No clusters configured. <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}">Add one →</a></p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <h5 class="card-header bg-transparent">
+        <i class="mdi mdi-shield-alert"></i> Alerts
+      </h5>
+      <div class="card-body">
+        <ul class="list-group list-group-flush">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span><i class="mdi mdi-backup-restore text-warning"></i> Stale Backups (>7d)</span>
+            <span class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill">{{ backup_alerts }}</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span><i class="mdi mdi-webhook text-info"></i> Pending Webhooks</span>
+            <span class="badge text-bg-{% if pending_webhooks %}info{% else %}success{% endif %} rounded-pill">{{ pending_webhooks }}</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Recent Jobs #}
+<div class="card shadow-sm">
+  <h5 class="card-header bg-transparent">
+    <i class="mdi mdi-history"></i> Recent Sync Jobs
+    <a href="{% url 'plugins:pve_sync_plugin:pvesyncjob_list' %}" class="float-end btn btn-sm btn-outline-primary">View All</a>
+  </h5>
   <div class="table-responsive">
     <table class="table table-hover mb-0">
       <thead>
@@ -74,18 +153,20 @@
       <tbody>
         {% for job in recent_jobs %}
           <tr>
-            <td>#{{ job.id }}</td>
+            <td><a href="{{ job.get_absolute_url }}">#{{ job.id }}</a></td>
             <td>{{ job.cluster_name }}</td>
-            <td>{{ job.get_status_display }}</td>
+            <td><span class="badge text-bg-{{ job.status_badge }}">{{ job.get_status_display }}</span></td>
             <td>{{ job.get_trigger_display }}</td>
             <td>{{ job.start_time|annotated_date }}</td>
-            <td>{% if job.end_time %}{{ job.end_time|annotated_date }}{% else %}-{% endif %}</td>
+            <td>{% if job.end_time %}{{ job.end_time|annotated_date }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>{{ job.success_vms }}/{{ job.total_vms }}</td>
             <td>{{ job.nodes_offline|add:job.config_drifts|add:job.resource_alerts }}</td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="8" class="text-muted">No sync jobs have been recorded.</td>
+            <td colspan="8" class="text-muted text-center py-4">
+              <i class="mdi mdi-information-outline"></i> No sync jobs recorded yet. Click <strong>Sync Now</strong> to start.
+            </td>
           </tr>
         {% endfor %}
       </tbody>

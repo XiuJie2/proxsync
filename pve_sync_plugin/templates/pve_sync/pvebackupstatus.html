@@ -1,0 +1,27 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Backup Information</h5>
+      <table class="table table-hover attr-table">
+        <tr><th scope="row">Virtual Machine</th><td><a href="{{ object.vm.get_absolute_url }}">{{ object.vm.name }}</a></td></tr>
+        <tr><th scope="row">Status</th><td>
+          {% if object.backup_status == 'success' %}<span class="badge text-bg-success">{{ object.get_backup_status_display }}</span>
+          {% elif object.backup_status == 'failed' %}<span class="badge text-bg-danger">{{ object.get_backup_status_display }}</span>
+          {% elif object.backup_status == 'running' %}<span class="badge text-bg-primary">{{ object.get_backup_status_display }}</span>
+          {% else %}<span class="badge text-bg-secondary">{{ object.get_backup_status_display }}</span>{% endif %}
+        </td></tr>
+        <tr><th scope="row">Last Backup</th><td>{% if object.last_backup %}{{ object.last_backup|annotated_date }}{% else %}Never{% endif %}</td></tr>
+        <tr><th scope="row">Backup Age</th><td>{% if object.backup_age_days is not None %}{{ object.backup_age_days }} days{% if object.is_stale %} <span class="badge text-bg-warning">Stale</span>{% endif %}{% else %}—{% endif %}</td></tr>
+        <tr><th scope="row">Size</th><td>{% if object.backup_size %}{{ object.backup_size|filesizeformat }}{% else %}—{% endif %}</td></tr>
+        <tr><th scope="row">Path</th><td>{{ object.backup_path|default:"—" }}</td></tr>
+        <tr><th scope="row">Next Backup</th><td>{% if object.next_backup %}{{ object.next_backup|annotated_date }}{% else %}—{% endif %}</td></tr>
+        <tr><th scope="row">PVE Backup ID</th><td>{{ object.pve_backup_id|default:"—" }}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

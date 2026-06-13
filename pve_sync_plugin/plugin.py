@@ -1,10 +1,12 @@
+"""NetBox PluginConfig for PVE-NetBox Sync (NetBox 4.x)."""
+
 from netbox.plugins import PluginConfig
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 
 class PveSyncPluginConfig(PluginConfig):
-    """PVE Sync 插件配置"""
+    """PVE Sync 插件配置 — NetBox 4.x compatible."""
 
     name = "pve_sync_plugin"
     verbose_name = "PVE-NetBox 同步"
@@ -13,11 +15,11 @@ class PveSyncPluginConfig(PluginConfig):
     author_email = ""
     version = __version__
     base_url = "pve-sync"
-    min_version = "3.5.0"
+    min_version = "4.5.0"
+    max_version = "4.6.99"
 
     middleware = []
     queues = ["default"]
-    template_extensions = "template_content.template_extensions"
 
     required_settings = []
     default_settings = {
@@ -37,7 +39,7 @@ class PveSyncPluginConfig(PluginConfig):
         "default_cluster_type": "Proxmox",
         "default_node_role": "PVE",
         "default_node_type": "Standard Server",
-        "state_db_path": "/tmp/pve-sync-state.db",
+        "state_db_path": "/var/lib/netbox/pve-sync-state.db",
         "enable_backup_sync": True,
     }
 

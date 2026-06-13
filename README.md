@@ -76,7 +76,7 @@ graph LR
 ### 前置要求
 - Python 3.8+
 - Proxmox VE 6.0+ 集群
-- NetBox 3.0+ 实例
+- NetBox 4.5+ 实例
 - Telegram Bot Token（可选但强烈推荐）
 
 ### 1. 克隆仓库
@@ -399,7 +399,8 @@ WantedBy=timers.target
 - **PVE Sync dashboard**：查看最近同步任务并手动触发同步
 - **PVE Clusters**：在 NetBox Web GUI 中维护 PVE 连接配置
 - **VM 详情页按钮**：在 Virtual Machine 页面顶部直接点击 **PVE Sync**
-- **标准 REST API**：`/api/plugins/pve-sync/trigger/`
+- **标准 REST API**：`POST /api/plugins/pve-sync/jobs/trigger/`
+- **Webhook API**：`POST /api/plugins/pve-sync/webhook/`
 
 ### 安装插件
 ```bash
@@ -431,6 +432,7 @@ PVE API、NetBox API、Telegram、默认站点/集群、state DB 等参数可以
 ```bash
 cd /opt/netbox/netbox
 /opt/netbox/venv/bin/python manage.py migrate pve_sync_plugin
+/opt/netbox/venv/bin/python manage.py collectstatic --no-input
 sudo systemctl restart netbox netbox-rq
 ```
 
@@ -438,7 +440,8 @@ sudo systemctl restart netbox netbox-rq
 - Dashboard: `/plugins/pve-sync/`
 - Settings: `/plugins/pve-sync/settings/`
 - Cluster profiles: `/plugins/pve-sync/clusters/`
-- API trigger: `POST /api/plugins/pve-sync/trigger/`
+- API trigger: `POST /api/plugins/pve-sync/jobs/trigger/`
+- Webhook receiver: `POST /api/plugins/pve-sync/webhook/`
 
 如果使用 Docker 部署，必须确认 NetBox Web 容器和 worker 容器都安装了本插件，并且两者都加载相同的 `PLUGINS` / `PLUGINS_CONFIG`。
 

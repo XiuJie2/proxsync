@@ -1,27 +1,8 @@
 """Navigation items exposed under NetBox's Plugins menu."""
 
-try:
-    from netbox.plugins import PluginMenu, PluginMenuButton, PluginMenuItem
-except ImportError:  # NetBox 3.x compatibility
-    try:
-        from extras.plugins import PluginMenu, PluginMenuButton, PluginMenuItem
-    except ImportError:
-        PluginMenu = None
-        from extras.plugins import PluginMenuButton, PluginMenuItem
+from netbox.plugins import PluginMenu, PluginMenuButton, PluginMenuItem
 
-try:
-    from netbox.choices import ButtonColorChoices
-except ImportError:
-    try:
-        from utilities.choices import ButtonColorChoices
-    except ImportError:
-        ButtonColorChoices = None
-
-
-def _button_color(name, fallback):
-    if ButtonColorChoices is None:
-        return fallback
-    return getattr(ButtonColorChoices, name, fallback)
+from netbox.choices import ButtonColorChoices
 
 
 dashboard_item = PluginMenuItem(
@@ -33,25 +14,43 @@ dashboard_item = PluginMenuItem(
             "plugins:pve_sync_plugin:trigger-sync",
             "Run sync",
             "mdi mdi-sync",
-            _button_color("GREEN", "green"),
+            ButtonColorChoices.GREEN,
             permissions=["pve_sync_plugin.add_pvesyncjob"],
         ),
     ),
 )
 
+jobs_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:pvesyncjob_list",
+    link_text="Sync Jobs",
+    permissions=["pve_sync_plugin.view_pvesyncjob"],
+)
+
+events_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:pvewebhookevent_list",
+    link_text="Webhook Events",
+    permissions=["pve_sync_plugin.view_pvewebhookevent"],
+)
+
 clusters_item = PluginMenuItem(
-    link="plugins:pve_sync_plugin:cluster-list",
+    link="plugins:pve_sync_plugin:pveclusterconfig_list",
     link_text="PVE Clusters",
     permissions=["pve_sync_plugin.view_pveclusterconfig"],
     buttons=(
         PluginMenuButton(
-            "plugins:pve_sync_plugin:cluster-add",
+            "plugins:pve_sync_plugin:pveclusterconfig_add",
             "Add cluster",
             "mdi mdi-plus-thick",
-            _button_color("GREEN", "green"),
+            ButtonColorChoices.GREEN,
             permissions=["pve_sync_plugin.add_pveclusterconfig"],
         ),
     ),
+)
+
+backup_status_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:pvebackupstatus_list",
+    link_text="Backup Status",
+    permissions=["pve_sync_plugin.view_pvebackupstatus"],
 )
 
 settings_item = PluginMenuItem(
@@ -60,18 +59,26 @@ settings_item = PluginMenuItem(
     permissions=["pve_sync_plugin.change_pvepluginsettings"],
 )
 
-menu_items = (
-    dashboard_item,
-    clusters_item,
-    settings_item,
-)
 
-if PluginMenu is not None:
-    menu = PluginMenu(
-        label="PVE Sync",
-        groups=(
-            ("Operations", (dashboard_item,)),
-            ("Configuration", (settings_item, clusters_item)),
+menu = PluginMenu(
+    label="PVE Sync",
+    groups=(
+        (
+            "Overview",
+            (dashboard_item,),
         ),
-        icon_class="mdi mdi-server-network",
-    )
+        (
+            "Sync & Operations",
+            (jobs_item, events_item),
+        ),
+        (
+            "Data Protection",
+            (backup_status_item,),
+        ),
+        (
+            "Configuration",
+            (clusters_item, settings_item),
+        ),
+    ),
+    icon_class="mdi mdi-server-network",
+)

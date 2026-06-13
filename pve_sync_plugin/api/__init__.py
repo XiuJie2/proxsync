@@ -1,1 +1,1 @@
-"""REST API package for the PVE Sync plugin."""
+"""PVE Sync Plugin API package."""

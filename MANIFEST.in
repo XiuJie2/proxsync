@@ -1,0 +1,4 @@
+include LICENSE
+include README.md
+recursive-include pve_sync_plugin/templates *.html
+recursive-include pve_sync_plugin/static *

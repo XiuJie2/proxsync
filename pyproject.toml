@@ -4,32 +4,68 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-pve-sync"
-version = "1.0.0"
-description = "NetBox plugin and standalone sync tool for Proxmox VE inventory"
+version = "2.0.0"
+description = "NetBox plugin for Proxmox VE inventory synchronization"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
 authors = [
     {name = "PVE-NetBox Sync Maintainers"}
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Django",
+    "Intended Audience :: System Administrators",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
 dependencies = [
+    "django-rq>=2.4.0",
     "pynetbox>=6.0.0",
     "proxmoxer>=2.0.0",
     "requests>=2.25.0",
     "urllib3>=1.26.0",
     "PyYAML>=5.4.0",
     "watchdog>=2.0.0",
-    "django-rq>=2.4.0",
-]
-classifiers = [
-    "Framework :: Django",
-    "Programming Language :: Python :: 3",
 ]
 
-[tool.setuptools]
-py-modules = ["sync", "config", "state_db"]
+[project.urls]
+Homepage = "https://github.com/yourorg/netbox-pve-sync"
+Source = "https://github.com/yourorg/netbox-pve-sync"
+Issues = "https://github.com/yourorg/netbox-pve-sync/issues"
+
+[project.optional-dependencies]
+standalone = [
+    "watchdog>=2.0.0",
+]
+dev = [
+    "ruff>=0.4.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["pve_sync_plugin*"]
 
+[tool.setuptools]
+py-modules = ["config", "state_db", "sync"]
+
 [tool.setuptools.package-data]
 pve_sync_plugin = ["templates/**/*.html"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]

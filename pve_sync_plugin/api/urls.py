@@ -1,18 +1,27 @@
-"""NetBox REST API routes.
+"""NetBox REST API routes for the PVE Sync plugin.
 
-These routes are mounted by NetBox under /api/plugins/pve-sync/.
+Mounted by NetBox under /api/plugins/pve-sync/.
 """
 
 from django.urls import path
+from netbox.api.routers import NetBoxRouter
 
-from pve_sync_plugin import views
+from pve_sync_plugin import views as plugin_views
 
-app_name = "pve_sync_plugin"
+from . import views as api_views
+
+app_name = "pve_sync_plugin-api"
+
+router = NetBoxRouter()
+router.APIRootView.cls_name = "PveSyncPluginRootView"
+
+router.register("jobs", api_views.PveSyncJobViewSet)
+router.register("events", api_views.PveWebhookEventViewSet)
+router.register("clusters", api_views.PveClusterConfigViewSet)
+router.register("backup-status", api_views.PveBackupStatusViewSet)
+router.register("settings", api_views.PvePluginSettingsViewSet)
 
 urlpatterns = [
-    path("trigger/", views.trigger_sync, name="trigger"),
-    path("status/<int:job_id>/", views.sync_status, name="status"),
-    path("jobs/", views.list_sync_jobs, name="jobs"),
-    path("backup-status/", views.backup_status_list, name="backup-list"),
-    path("backup-status/<int:vm_id>/", views.update_backup_status, name="backup-update"),
+    path("webhook/", plugin_views.webhook_receiver, name="webhook"),
+    *router.urls,
 ]

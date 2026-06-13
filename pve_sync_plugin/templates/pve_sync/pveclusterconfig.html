@@ -1,0 +1,44 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Cluster Connection</h5>
+      <table class="table table-hover attr-table">
+        <tr><th scope="row">Name</th><td>{{ object.name }}</td></tr>
+        <tr><th scope="row">Description</th><td>{{ object.description|default:"—" }}</td></tr>
+        <tr><th scope="row">PVE Host</th><td>{{ object.pve_host }}</td></tr>
+        <tr><th scope="row">PVE User</th><td>{{ object.pve_user }}</td></tr>
+        <tr><th scope="row">Verify SSL</th><td>{% if object.pve_verify_ssl %}<span class="text-success">Yes</span>{% else %}<span class="text-warning">No</span>{% endif %}</td></tr>
+        <tr><th scope="row">Enabled</th><td>{% if object.enabled %}<span class="badge text-bg-success">Enabled</span>{% else %}<span class="badge text-bg-danger">Disabled</span>{% endif %}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">NetBox Mapping</h5>
+      <table class="table table-hover attr-table">
+        <tr><th scope="row">Site</th><td>{% if object.netbox_site %}<a href="{{ object.netbox_site.get_absolute_url }}">{{ object.netbox_site }}</a>{% else %}—{% endif %}</td></tr>
+        <tr><th scope="row">Cluster Type</th><td>{% if object.netbox_cluster_type %}<a href="{{ object.netbox_cluster_type.get_absolute_url }}">{{ object.netbox_cluster_type }}</a>{% else %}—{% endif %}</td></tr>
+        <tr><th scope="row">Cluster</th><td>{% if object.netbox_cluster %}<a href="{{ object.netbox_cluster.get_absolute_url }}">{{ object.netbox_cluster }}</a>{% else %}—{% endif %}</td></tr>
+        <tr><th scope="row">Schedule</th><td>{{ object.get_sync_schedule_display }}</td></tr>
+        <tr><th scope="row">Last Sync</th><td>{% if object.last_sync %}{{ object.last_sync|annotated_date }}{% else %}Never{% endif %}</td></tr>
+        <tr><th scope="row">Last Status</th><td>{{ object.last_sync_status|default:"—" }}</td></tr>
+      </table>
+    </div>
+    <div class="card mt-3">
+      <div class="card-body text-center">
+        <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}">
+          {% csrf_token %}
+          <input type="hidden" name="cluster" value="{{ object.name }}">
+          <button type="submit" class="btn btn-success">
+            <i class="mdi mdi-sync"></i> Sync This Cluster Now
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

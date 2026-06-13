@@ -1,33 +1,79 @@
 {% extends 'base/layout.html' %}
+{% load helpers %}
+{% load form_helpers %}
 
 {% block title %}PVE Sync Settings{% endblock %}
 
 {% block content %}
 <div class="row mb-3">
-  <div class="col col-md-8">
-    <h1>PVE Sync Settings</h1>
-    <div class="text-muted">Plugin-wide defaults used by the default sync profile</div>
-  </div>
-  <div class="col col-md-4 text-end">
-    <a href="{% url 'plugins:pve_sync_plugin:dashboard' %}" class="btn btn-sm btn-outline-secondary">
-      <i class="mdi mdi-view-dashboard"></i> Dashboard
-    </a>
-    <a href="{% url 'plugins:pve_sync_plugin:cluster-list' %}" class="btn btn-sm btn-outline-secondary">
-      <i class="mdi mdi-server-network"></i> Clusters
-    </a>
+  <div class="col">
+    <h1><i class="mdi mdi-cog text-primary"></i> PVE Sync Settings</h1>
+    <div class="text-muted">Configure plugin-wide defaults for PVE-NetBox synchronization</div>
   </div>
 </div>
 
 <form method="post">
   {% csrf_token %}
-  <div class="card">
-    <h5 class="card-header">Global Settings</h5>
-    <div class="card-body">
-      {{ form.as_p }}
+
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card mb-3">
+        <h5 class="card-header">Proxmox VE Connection</h5>
+        <div class="card-body">
+          {% render_field form.pve_api_host %}
+          {% render_field form.pve_api_user %}
+          {% render_field form.pve_api_token %}
+          {% render_field form.pve_api_secret %}
+          {% render_field form.pve_api_verify_ssl %}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">NetBox API</h5>
+        <div class="card-body">
+          {% render_field form.netbox_url %}
+          {% render_field form.netbox_token %}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">Telegram Notifications</h5>
+        <div class="card-body">
+          {% render_field form.telegram_bot_token %}
+          {% render_field form.telegram_chat_id %}
+        </div>
+      </div>
     </div>
-    <div class="card-footer text-end">
-      <button type="submit" class="btn btn-primary">Save</button>
+
+    <div class="col-md-6">
+      <div class="card mb-3">
+        <h5 class="card-header">Default Mappings</h5>
+        <div class="card-body">
+          {% render_field form.default_cluster_name %}
+          {% render_field form.default_netbox_cluster %}
+          {% render_field form.default_site %}
+          {% render_field form.default_cluster_type %}
+          {% render_field form.default_node_role %}
+          {% render_field form.default_node_type %}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">Advanced</h5>
+        <div class="card-body">
+          {% render_field form.webhook_secret %}
+          {% render_field form.state_db_path %}
+          {% render_field form.enable_backup_sync %}
+        </div>
+      </div>
     </div>
+  </div>
+
+  <div class="text-end">
+    <button type="submit" class="btn btn-primary">
+      <i class="mdi mdi-content-save"></i> Save Settings
+    </button>
+    <a href="{% url 'plugins:pve_sync_plugin:dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
   </div>
 </form>
 {% endblock %}

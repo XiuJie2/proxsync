@@ -4,8 +4,6 @@
 """
 
 import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from state_db import compute_config_hash
 
@@ -38,7 +36,7 @@ def test_compute_config_hash():
     
     # 验证哈希不同
     assert hash1 != hash2, "Hash should differ when networks change"
-    print("✓ Network interfaces affect hash")
+    print("[OK] Network interfaces affect hash")
     
     # 修改接口后哈希变化
     networks_modified = [
@@ -47,18 +45,22 @@ def test_compute_config_hash():
     ]
     hash3 = compute_config_hash(vm_config, tags, networks_modified)
     assert hash2 != hash3, "Hash should differ when bridge changes"
-    print("✓ Bridge change detected")
+    print("[OK] Bridge change detected")
     
     # 空网络列表与None区别
     hash_empty = compute_config_hash(vm_config, tags, [])
     assert hash1 == hash_empty, "Empty list should equal None"
-    print("✓ Empty networks equals None")
+    print("[OK] Empty networks equals None")
     
-    print("\n✅ All hash tests passed!")
+    print("\n[OK] All hash tests passed!")
 
 def test_parse_network_config():
     """测试网络配置解析"""
-    from sync import OptimizedPVEToNetBoxSync
+    try:
+        from sync import OptimizedPVEToNetBoxSync
+    except ModuleNotFoundError as exc:
+        print(f"[SKIP] parse_network_config requires missing dependency: {exc.name}")
+        return
     
     # 创建一个实例（仅测试方法）
     sync = OptimizedPVEToNetBoxSync.__new__(OptimizedPVEToNetBoxSync)
@@ -73,7 +75,7 @@ def test_parse_network_config():
         'mtu': '1500'
     }
     assert result == expected, f"Parse failed: {result} != {expected}"
-    print("✓ parse_network_config works")
+    print("[OK] parse_network_config works")
 
 if __name__ == '__main__':
     print("=== Testing Network Interface Sync ===\n")
@@ -82,9 +84,9 @@ if __name__ == '__main__':
         test_compute_config_hash()
         print()
         test_parse_network_config()
-        print("\n✅ All tests passed!")
+        print("\n[OK] All tests passed!")
     except Exception as e:
-        print(f"\n❌ Test failed: {e}")
+        print(f"\n[FAIL] Test failed: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

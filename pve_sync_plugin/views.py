@@ -1,272 +1,278 @@
 """
 PVE Sync Plugin Views
-提供 REST API 和页面视图
+
+NetBox 4.x class-based views for all plugin pages:
+- Dashboard
+- Model CRUD (list, detail, edit, delete)
+- Manual sync trigger
+- Plugin settings
+- Webhook receiver (function-based, requires @csrf_exempt)
 """
 
-from django.shortcuts import redirect, render, get_object_or_404
-from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib import messages
+from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
+from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.utils import timezone
-from rest_framework.decorators import api_view, permission_classes as drf_permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
+
+from netbox.views import generic
+
 import json
 import hmac
 import hashlib
 
-from .forms import PveClusterConfigForm, PvePluginSettingsForm
+from .filtersets import (
+    PveBackupStatusFilterSet,
+    PveClusterConfigFilterSet,
+    PveSyncJobFilterSet,
+    PveWebhookEventFilterSet,
+)
+from .forms import (
+    PveClusterConfigFilterForm,
+    PveClusterConfigForm,
+    PvePluginSettingsForm,
+    PveSyncJobFilterForm,
+    PveWebhookEventFilterForm,
+)
 from .models import (
-    PveSyncJob,
-    PveWebhookEvent,
     PveBackupStatus,
     PveClusterConfig,
     PvePluginSettings,
+    PveSyncJob,
+    PveWebhookEvent,
+)
+from .tables import (
+    PveBackupStatusTable,
+    PveClusterConfigTable,
+    PveSyncJobTable,
+    PveWebhookEventTable,
 )
 from .tasks import enqueue_sync, enqueue_webhook_event
 from .utils import get_plugin_config
 
 
-@login_required
-@permission_required('pve_sync_plugin.view_pvesyncjob', raise_exception=True)
-def sync_dashboard(request):
-    """同步仪表板页面"""
-    recent_jobs = PveSyncJob.objects.all()[:50]
-    pending_webhooks = PveWebhookEvent.objects.filter(processed=False).count()
-    backup_alerts = PveBackupStatus.objects.filter(
-        last_backup__lt=timezone.now() - timezone.timedelta(days=7)
-    ).count()
-    
-    context = {
-        'recent_jobs': recent_jobs,
-        'pending_webhooks': pending_webhooks,
-        'backup_alerts': backup_alerts,
-        'clusters': PveClusterConfig.objects.filter(enabled=True),
-    }
-    return render(request, 'pve_sync/dashboard.html', context)
+# ============================================================================
+# Dashboard
+# ============================================================================
+
+class DashboardView(PermissionRequiredMixin, View):
+    """Main plugin dashboard with recent jobs, alerts, and quick actions."""
+
+    permission_required = "pve_sync_plugin.view_pvesyncjob"
+
+    def get(self, request):
+        recent_jobs = PveSyncJob.objects.all()[:20]
+        pending_webhooks = PveWebhookEvent.objects.filter(processed=False).count()
+        backup_alerts = PveBackupStatus.objects.filter(
+            last_backup__lt=timezone.now() - timezone.timedelta(days=7)
+        ).count()
+        clusters = PveClusterConfig.objects.filter(enabled=True)
+
+        # Stats for dashboard cards
+        total_jobs = PveSyncJob.objects.count()
+        success_jobs = PveSyncJob.objects.filter(status="success").count()
+        failed_jobs = PveSyncJob.objects.filter(status="failed").count()
+
+        context = {
+            "recent_jobs": recent_jobs,
+            "pending_webhooks": pending_webhooks,
+            "backup_alerts": backup_alerts,
+            "clusters": clusters,
+            "total_jobs": total_jobs,
+            "success_jobs": success_jobs,
+            "failed_jobs": failed_jobs,
+        }
+        return render(request, "pve_sync/dashboard.html", context)
 
 
-@login_required
-@permission_required('pve_sync_plugin.add_pvesyncjob', raise_exception=True)
-@require_http_methods(["GET", "POST"])
-def trigger_sync_view(request):
-    """Web GUI endpoint for manually starting a sync."""
-    cluster_name = request.POST.get("cluster") or request.GET.get("cluster") or "default"
-    try:
-        job = _create_and_enqueue_sync_job(cluster_name, request.user, "manual")
-        messages.success(request, f"PVE 同步已排入背景任務，Job #{job.id}")
-    except Exception as exc:
-        messages.error(request, f"無法啟動同步: {exc}")
-    return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
+# ============================================================================
+# PveSyncJob Views
+# ============================================================================
+
+class PveSyncJobListView(generic.ObjectListView):
+    queryset = PveSyncJob.objects.all()
+    table = PveSyncJobTable
+    filterset = PveSyncJobFilterSet
+    filterset_form = PveSyncJobFilterForm
 
 
-@login_required
-@permission_required('pve_sync_plugin.add_pvesyncjob', raise_exception=True)
-@require_http_methods(["POST"])
-def trigger_vm_sync_view(request, vm_id):
-    """Queue a sync from a VM detail page."""
-    from virtualization.models import VirtualMachine
-
-    vm = get_object_or_404(VirtualMachine, pk=vm_id)
-    cluster_name = _resolve_cluster_name_for_vm(vm)
-
-    try:
-        job = _create_and_enqueue_sync_job(
-            cluster_name,
-            request.user,
-            "manual",
-            details={
-                "vm_id": vm.pk,
-                "vm_name": vm.name,
-                "source": "vm_detail",
-            },
-        )
-        messages.success(request, f"{vm.name} 的 PVE 同步已排入背景任務，Job #{job.id}")
-    except Exception as exc:
-        messages.error(request, f"無法啟動 {vm.name} 的同步: {exc}")
-
-    return redirect(request.POST.get("return_url") or vm.get_absolute_url())
+class PveSyncJobView(generic.ObjectView):
+    queryset = PveSyncJob.objects.all()
 
 
-@login_required
-@permission_required('pve_sync_plugin.view_pveclusterconfig', raise_exception=True)
-def cluster_config_list(request):
-    """List configured PVE clusters."""
-    clusters = PveClusterConfig.objects.select_related(
-        "netbox_site",
-        "netbox_cluster_type",
-        "netbox_cluster",
+class PveSyncJobDeleteView(generic.ObjectDeleteView):
+    queryset = PveSyncJob.objects.all()
+
+
+class PveSyncJobBulkDeleteView(generic.BulkDeleteView):
+    queryset = PveSyncJob.objects.all()
+    table = PveSyncJobTable
+
+
+# ============================================================================
+# PveWebhookEvent Views
+# ============================================================================
+
+class PveWebhookEventListView(generic.ObjectListView):
+    queryset = PveWebhookEvent.objects.all()
+    table = PveWebhookEventTable
+    filterset = PveWebhookEventFilterSet
+    filterset_form = PveWebhookEventFilterForm
+
+
+class PveWebhookEventView(generic.ObjectView):
+    queryset = PveWebhookEvent.objects.all()
+
+
+class PveWebhookEventDeleteView(generic.ObjectDeleteView):
+    queryset = PveWebhookEvent.objects.all()
+
+
+class PveWebhookEventBulkDeleteView(generic.BulkDeleteView):
+    queryset = PveWebhookEvent.objects.all()
+    table = PveWebhookEventTable
+
+
+# ============================================================================
+# PveClusterConfig Views
+# ============================================================================
+
+class PveClusterConfigListView(generic.ObjectListView):
+    queryset = PveClusterConfig.objects.select_related(
+        "netbox_site", "netbox_cluster_type", "netbox_cluster"
     )
-    return render(request, "pve_sync/cluster_list.html", {"clusters": clusters})
+    table = PveClusterConfigTable
+    filterset = PveClusterConfigFilterSet
+    filterset_form = PveClusterConfigFilterForm
 
 
-@login_required
-@permission_required('pve_sync_plugin.add_pveclusterconfig', raise_exception=True)
-@require_http_methods(["GET", "POST"])
-def cluster_config_add(request):
-    """Create a PVE cluster config from the plugin UI."""
-    if request.method == "POST":
-        form = PveClusterConfigForm(request.POST)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "PVE 集群配置已建立")
-            return redirect(reverse("plugins:pve_sync_plugin:cluster-list"))
-    else:
-        form = PveClusterConfigForm()
-
-    return render(request, "pve_sync/cluster_form.html", {"form": form, "cluster": None})
+class PveClusterConfigView(generic.ObjectView):
+    queryset = PveClusterConfig.objects.all()
 
 
-@login_required
-@permission_required('pve_sync_plugin.change_pveclusterconfig', raise_exception=True)
-@require_http_methods(["GET", "POST"])
-def cluster_config_edit(request, pk):
-    """Edit a PVE cluster config from the plugin UI."""
-    cluster = get_object_or_404(PveClusterConfig, pk=pk)
-    if request.method == "POST":
-        form = PveClusterConfigForm(request.POST, instance=cluster)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "PVE 集群配置已更新")
-            return redirect(reverse("plugins:pve_sync_plugin:cluster-list"))
-    else:
-        form = PveClusterConfigForm(instance=cluster)
-
-    return render(request, "pve_sync/cluster_form.html", {"form": form, "cluster": cluster})
+class PveClusterConfigEditView(generic.ObjectEditView):
+    queryset = PveClusterConfig.objects.all()
+    form = PveClusterConfigForm
 
 
-@login_required
-@permission_required('pve_sync_plugin.change_pvepluginsettings', raise_exception=True)
-@require_http_methods(["GET", "POST"])
-def plugin_settings(request):
+class PveClusterConfigDeleteView(generic.ObjectDeleteView):
+    queryset = PveClusterConfig.objects.all()
+
+
+class PveClusterConfigBulkDeleteView(generic.BulkDeleteView):
+    queryset = PveClusterConfig.objects.all()
+    table = PveClusterConfigTable
+
+
+# ============================================================================
+# PveBackupStatus Views
+# ============================================================================
+
+class PveBackupStatusListView(generic.ObjectListView):
+    queryset = PveBackupStatus.objects.select_related("vm")
+    table = PveBackupStatusTable
+    filterset = PveBackupStatusFilterSet
+
+
+class PveBackupStatusView(generic.ObjectView):
+    queryset = PveBackupStatus.objects.all()
+
+
+# ============================================================================
+# Plugin Settings (singleton)
+# ============================================================================
+
+class PvePluginSettingsView(PermissionRequiredMixin, View):
     """Edit singleton plugin settings from the NetBox Web UI."""
-    settings_obj = PvePluginSettings.load()
-    if request.method == "POST":
+
+    permission_required = "pve_sync_plugin.change_pvepluginsettings"
+
+    def get(self, request):
+        settings_obj = PvePluginSettings.load()
+        form = PvePluginSettingsForm(instance=settings_obj)
+        return render(request, "pve_sync/settings.html", {"form": form})
+
+    def post(self, request):
+        settings_obj = PvePluginSettings.load()
         form = PvePluginSettingsForm(request.POST, instance=settings_obj)
         if form.is_valid():
             form.save()
             messages.success(request, "PVE Sync 設定已更新")
             return redirect(reverse("plugins:pve_sync_plugin:settings"))
-    else:
-        form = PvePluginSettingsForm(instance=settings_obj)
-
-    return render(request, "pve_sync/settings.html", {"form": form})
+        return render(request, "pve_sync/settings.html", {"form": form})
 
 
-@api_view(['POST'])
-@drf_permission_classes([IsAuthenticated])
-def trigger_sync(request):
-    """
-    手动触发同步
-    
-    POST /api/plugins/pve-sync/trigger/
-    
-    Body:
-    {
-        "cluster": "cluster_name"  # 可选，不指定则同步所有集群
-    }
-    """
-    try:
-        cluster_name = request.data.get('cluster', 'default')
-        job = _create_and_enqueue_sync_job(cluster_name, request.user, "api")
-        
-        return Response({
-            'status': 'success',
-            'message': f'同步任务已启动 (集群: {cluster_name})',
-            'job_id': job.id,
-            'rq_job_id': job.details.get('rq_job_id'),
-        }, status=status.HTTP_202_ACCEPTED)
-        
-    except Exception as e:
-        return Response({
-            'status': 'error',
-            'message': str(e),
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# ============================================================================
+# Sync Triggers
+# ============================================================================
+
+class TriggerSyncView(PermissionRequiredMixin, View):
+    """Web GUI endpoint for manually starting a sync."""
+
+    permission_required = "pve_sync_plugin.add_pvesyncjob"
+
+    def post(self, request):
+        cluster_name = request.POST.get("cluster") or "default"
+        try:
+            job = _create_and_enqueue_sync_job(cluster_name, request.user, "manual")
+            messages.success(request, f"PVE 同步已排入背景任務，Job #{job.id}")
+        except Exception as exc:
+            messages.error(request, f"無法啟動同步: {exc}")
+        return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
+
+    def get(self, request):
+        messages.info(request, "請從 Dashboard 使用 Sync Now 表單啟動同步。")
+        return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
 
 
-@api_view(['GET'])
-@drf_permission_classes([IsAuthenticated])
-def sync_status(request, job_id):
-    """
-    查询同步任务状态
-    
-    GET /api/plugins/pve-sync/status/{job_id}/
-    """
-    try:
-        job = get_object_or_404(PveSyncJob, id=job_id)
-        
-        data = {
-            'id': job.id,
-            'cluster': job.cluster_name,
-            'status': job.get_status_display(),
-            'start_time': job.start_time,
-            'end_time': job.end_time,
-            'duration': job.duration,
-            'total_vms': job.total_vms,
-            'success_vms': job.success_vms,
-            'failed_vms': job.failed_vms,
-            'success_rate': job.success_rate,
-            'trigger': job.get_trigger_display(),
-            'triggered_by': job.triggered_by.username if job.triggered_by else None,
-            'details': job.details,
-        }
-        
-        return Response(data)
-    
-    except Exception as e:
-        return Response({
-            'status': 'error',
-            'message': str(e),
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+class TriggerVmSyncView(PermissionRequiredMixin, View):
+    """Queue a sync from a VM detail page."""
+
+    permission_required = "pve_sync_plugin.add_pvesyncjob"
+
+    def post(self, request, vm_id):
+        from virtualization.models import VirtualMachine
+
+        vm = get_object_or_404(VirtualMachine, pk=vm_id)
+        cluster_name = _resolve_cluster_name_for_vm(vm)
+
+        try:
+            job = _create_and_enqueue_sync_job(
+                cluster_name,
+                request.user,
+                "manual",
+                details={
+                    "vm_id": vm.pk,
+                    "vm_name": vm.name,
+                    "source": "vm_detail",
+                },
+            )
+            messages.success(request, f"{vm.name} 的 PVE 同步已排入背景任務，Job #{job.id}")
+        except Exception as exc:
+            messages.error(request, f"無法啟動 {vm.name} 的同步: {exc}")
+
+        return redirect(request.POST.get("return_url") or vm.get_absolute_url())
 
 
-@api_view(['GET'])
-@drf_permission_classes([IsAuthenticated])
-def list_sync_jobs(request):
-    """
-    列出最近的同步任务
-    
-    GET /api/plugins/pve-sync/jobs/?limit=20&cluster=default
-    """
-    limit = int(request.GET.get('limit', 20))
-    cluster = request.GET.get('cluster')
-    
-    jobs = PveSyncJob.objects.all()
-    if cluster:
-        jobs = jobs.filter(cluster_name=cluster)
-    
-    jobs = jobs[:limit]
-    
-    data = [{
-        'id': job.id,
-        'cluster': job.cluster_name,
-        'status': job.get_status_display(),
-        'start_time': job.start_time,
-        'end_time': job.end_time,
-        'total_vms': job.total_vms,
-        'success_vms': job.success_vms,
-        'success_rate': job.success_rate,
-        'trigger': job.get_trigger_display(),
-    } for job in jobs]
-    
-    return Response(data)
-
+# ============================================================================
+# Webhook Receiver (function-based — needs @csrf_exempt)
+# ============================================================================
 
 @csrf_exempt
 @require_http_methods(["POST"])
 def webhook_receiver(request):
     """
     接收 PVE Webhook 事件
-    
+
     POST /api/plugins/pve-sync/webhook/
-    
+
     Headers:
-        X-PVE-Signature: <hmac_sha256_signature>  # 如果配置了 secret
-    
+        X-PVE-Signature: <hmac_sha256_signature>
+
     Body (JSON):
     {
         "event": "vm-started",
@@ -277,141 +283,61 @@ def webhook_receiver(request):
     }
     """
     try:
-        # 读取原始 body（用于签名验证）
-        raw_body = request.body.decode('utf-8')
+        raw_body = request.body.decode("utf-8")
         data = json.loads(raw_body)
-        
-        # 验证签名（如果配置了 secret）
-        webhook_secret = get_plugin_config('webhook_secret')
+
+        webhook_secret = get_plugin_config("webhook_secret")
         if webhook_secret:
-            signature = request.headers.get('X-PVE-Signature', '')
+            signature = request.headers.get("X-PVE-Signature", "")
             expected = hmac.new(
-                webhook_secret.encode(),
-                raw_body.encode(),
-                hashlib.sha256
+                webhook_secret.encode(), raw_body.encode(), hashlib.sha256
             ).hexdigest()
-            
+
             if not hmac.compare_digest(signature, expected):
-                return JsonResponse({
-                    'status': 'error',
-                    'message': 'Invalid signature'
-                }, status=status.HTTP_403_FORBIDDEN)
-        
-        # 保存 webhook 事件
+                return JsonResponse(
+                    {"status": "error", "message": "Invalid signature"}, status=403
+                )
+
         event = PveWebhookEvent.objects.create(
-            event_type=data.get('event', 'unknown'),
-            node=data.get('node'),
-            vmid=data.get('vmid'),
-            vm_name=data.get('vmname'),
-            raw_data=data
+            event_type=data.get("event", "unknown"),
+            node=data.get("node"),
+            vmid=data.get("vmid"),
+            vm_name=data.get("vmname"),
+            raw_data=data,
         )
-        
+
         rq_job_id = enqueue_webhook_event(event)
-        
-        return JsonResponse({
-            'status': 'success',
-            'message': 'Webhook received',
-            'event_id': event.id,
-            'rq_job_id': rq_job_id,
-        })
-        
-    except json.JSONDecodeError:
-        return JsonResponse({
-            'status': 'error',
-            'message': 'Invalid JSON'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    except Exception as e:
-        return JsonResponse({
-            'status': 'error',
-            'message': str(e),
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-@api_view(['GET'])
-@drf_permission_classes([IsAuthenticated])
-def backup_status_list(request):
-    """
-    列出备份状态异常的 VM
-    
-    GET /api/plugins/pve-sync/backup-status/?stale_only=true
-    """
-    stale_only = request.GET.get('stale_only', 'false').lower() == 'true'
-    
-    queryset = PveBackupStatus.objects.all()
-    if stale_only:
-        queryset = queryset.filter(
-            last_backup__lt=timezone.now() - timezone.timedelta(days=7)
+        return JsonResponse(
+            {
+                "status": "success",
+                "message": "Webhook received",
+                "event_id": event.id,
+                "rq_job_id": rq_job_id,
+            }
         )
-    
-    # 关联虚拟机信息
-    from django.db.models import F
-    
-    data = []
-    for backup in queryset.select_related('vm'):
-        vm = backup.vm
-        data.append({
-            'vm_id': vm.id,
-            'vm_name': vm.name,
-            'last_backup': backup.last_backup,
-            'backup_status': backup.get_backup_status_display(),
-            'backup_age_days': backup.backup_age_days,
-            'is_stale': backup.is_stale,
-            'next_backup': backup.next_backup,
-        })
-    
-    return Response(data)
+
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {"status": "error", "message": "Invalid JSON"}, status=400
+        )
+    except Exception as e:
+        return JsonResponse(
+            {"status": "error", "message": str(e)}, status=500
+        )
 
 
-@api_view(['POST'])
-@drf_permission_classes([IsAuthenticated])
-def update_backup_status(request, vm_id):
-    """
-    手动更新 VM 备份状态（用于测试或手动干预）
-    
-    POST /api/plugins/pve-sync/backup-status/{vm_id}/
-    
-    Body:
-    {
-        "status": "success",
-        "last_backup": "2025-03-30T15:30:00Z",
-        "backup_size": 1073741824,
-        "backup_path": "/storage/backup/vm-100.vma.gz"
-    }
-    """
-    from virtualization.models import VirtualMachine
-    
-    vm = get_object_or_404(VirtualMachine, pk=vm_id)
-    
-    backup_status, created = PveBackupStatus.objects.get_or_create(vm=vm)
-    
-    status_val = request.data.get('status')
-    if status_val in dict(PveBackupStatus._meta.get_field('backup_status').choices):
-        backup_status.backup_status = status_val
-    
-    if 'last_backup' in request.data:
-        backup_status.last_backup = request.data['last_backup']
-    
-    if 'backup_size' in request.data:
-        backup_status.backup_size = request.data['backup_size']
-    
-    if 'backup_path' in request.data:
-        backup_status.backup_path = request.data['backup_path']
-    
-    backup_status.save()
-    
-    return Response({
-        'status': 'success',
-        'message': f'Backup status updated for {vm.name}',
-    })
-
+# ============================================================================
+# Helpers
+# ============================================================================
 
 def _create_and_enqueue_sync_job(cluster_name, user, trigger, details=None):
-    if cluster_name != 'default':
+    if cluster_name != "default":
         get_object_or_404(PveClusterConfig, name=cluster_name, enabled=True)
 
     job = PveSyncJob.objects.create(
         cluster_name=cluster_name,
-        status='pending',
+        status="pending",
         trigger=trigger,
         triggered_by=user if getattr(user, "is_authenticated", False) else None,
         details=details or {},

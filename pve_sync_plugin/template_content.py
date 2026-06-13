@@ -1,9 +1,6 @@
 """Template extensions injected into NetBox core object pages."""
 
-try:
-    from netbox.plugins import PluginTemplateExtension
-except ImportError:  # NetBox 3.x compatibility
-    from extras.plugins import PluginTemplateExtension
+from netbox.plugins import PluginTemplateExtension
 
 from .models import PveClusterConfig, PveSyncJob
 
@@ -12,7 +9,6 @@ class VirtualMachineSyncButton(PluginTemplateExtension):
     """Add a PVE sync action to NetBox virtual machine detail pages."""
 
     model = "virtualization.virtualmachine"
-    models = ["virtualization.virtualmachine"]
 
     def buttons(self):
         request = self.context.get("request")
@@ -27,9 +23,13 @@ class VirtualMachineSyncButton(PluginTemplateExtension):
                 enabled=True,
             ).first()
 
-        recent_job = PveSyncJob.objects.filter(
-            details__vm_id=vm.pk,
-        ).order_by("-start_time").first()
+        recent_job = (
+            PveSyncJob.objects.filter(
+                details__vm_id=vm.pk,
+            )
+            .order_by("-start_time")
+            .first()
+        )
 
         return self.render(
             "pve_sync/inc/vm_sync_button.html",

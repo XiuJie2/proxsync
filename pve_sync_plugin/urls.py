@@ -1,31 +1,78 @@
 """
-PVE Sync Plugin URLs
-URL 路由配置
+PVE Sync Plugin URLs — UI routes
+
+Routes are mounted by NetBox under /plugins/pve-sync/
+(the base_url from PluginConfig).
 """
 
-from django.urls import path
-from django.contrib.auth.decorators import login_required
+from django.urls import include, path
+
+from utilities.urls import get_model_urls
+
 from . import views
 
 app_name = "pve_sync_plugin"
 
 urlpatterns = [
-    # 仪表板
-    path('', login_required(views.sync_dashboard), name='dashboard'),
-    path('trigger/', views.trigger_sync_view, name='trigger-sync'),
-    path('virtual-machines/<int:vm_id>/sync/', views.trigger_vm_sync_view, name='trigger-vm-sync'),
-    path('settings/', views.plugin_settings, name='settings'),
-    path('clusters/', views.cluster_config_list, name='cluster-list'),
-    path('clusters/add/', views.cluster_config_add, name='cluster-add'),
-    path('clusters/<int:pk>/edit/', views.cluster_config_edit, name='cluster-edit'),
-    
-    # API 端点
-    path('api/trigger/', views.trigger_sync, name='api-trigger'),
-    path('api/status/<int:job_id>/', views.sync_status, name='api-status'),
-    path('api/jobs/', views.list_sync_jobs, name='api-jobs'),
-    path('api/backup-status/', views.backup_status_list, name='api-backup-list'),
-    path('api/backup-status/<int:vm_id>/', views.update_backup_status, name='api-backup-update'),
-    
-    # Webhook 接收器（对外公开，需签名验证）
-    path('webhook/', views.webhook_receiver, name='webhook'),
+    # Dashboard
+    path("", views.DashboardView.as_view(), name="dashboard"),
+
+    # Manual sync triggers
+    path("trigger/", views.TriggerSyncView.as_view(), name="trigger-sync"),
+    path(
+        "virtual-machines/<int:vm_id>/sync/",
+        views.TriggerVmSyncView.as_view(),
+        name="trigger-vm-sync",
+    ),
+
+    # Plugin settings (singleton)
+    path("settings/", views.PvePluginSettingsView.as_view(), name="settings"),
+
+    # --- PveSyncJob CRUD ---
+    path("jobs/", views.PveSyncJobListView.as_view(), name="pvesyncjob_list"),
+    path(
+        "jobs/<int:pk>/",
+        include(get_model_urls("pve_sync_plugin", "pvesyncjob")),
+    ),
+
+    # --- PveWebhookEvent CRUD ---
+    path(
+        "events/",
+        views.PveWebhookEventListView.as_view(),
+        name="pvewebhookevent_list",
+    ),
+    path(
+        "events/<int:pk>/",
+        include(get_model_urls("pve_sync_plugin", "pvewebhookevent")),
+    ),
+
+    # --- PveClusterConfig CRUD ---
+    path(
+        "clusters/",
+        views.PveClusterConfigListView.as_view(),
+        name="pveclusterconfig_list",
+    ),
+    path(
+        "clusters/add/",
+        views.PveClusterConfigEditView.as_view(),
+        name="pveclusterconfig_add",
+    ),
+    path(
+        "clusters/<int:pk>/",
+        include(get_model_urls("pve_sync_plugin", "pveclusterconfig")),
+    ),
+
+    # --- PveBackupStatus read-only ---
+    path(
+        "backup-status/",
+        views.PveBackupStatusListView.as_view(),
+        name="pvebackupstatus_list",
+    ),
+    path(
+        "backup-status/<int:pk>/",
+        include(get_model_urls("pve_sync_plugin", "pvebackupstatus")),
+    ),
+
+    # Webhook receiver (external, no auth, HMAC-verified)
+    path("webhook/", views.webhook_receiver, name="webhook"),
 ]

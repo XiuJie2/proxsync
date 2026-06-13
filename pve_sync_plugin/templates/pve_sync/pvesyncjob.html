@@ -1,0 +1,94 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Sync Job Details</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Cluster</th>
+          <td>{{ object.cluster_name }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Status</th>
+          <td><span class="badge text-bg-{{ object.status_badge }}">{{ object.get_status_display }}</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Trigger</th>
+          <td>{{ object.get_trigger_display }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Triggered By</th>
+          <td>{{ object.triggered_by|default:"—" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Started</th>
+          <td>{{ object.start_time|annotated_date }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Finished</th>
+          <td>{% if object.end_time %}{{ object.end_time|annotated_date }}{% else %}—{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">Duration</th>
+          <td>{% if object.duration %}{{ object.duration|floatformat:1 }}s{% else %}—{% endif %}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Statistics</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Total VMs</th>
+          <td>{{ object.total_vms }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Success</th>
+          <td><span class="text-success">{{ object.success_vms }}</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Failed</th>
+          <td><span class="text-danger">{{ object.failed_vms }}</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Success Rate</th>
+          <td>{{ object.success_rate|floatformat:1 }}%</td>
+        </tr>
+        <tr>
+          <th scope="row">Nodes Offline</th>
+          <td>{{ object.nodes_offline }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Config Drifts</th>
+          <td>{{ object.config_drifts }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Tag Changes</th>
+          <td>{{ object.tag_changes }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Resource Alerts</th>
+          <td>{{ object.resource_alerts }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if object.details %}
+<div class="row mt-3">
+  <div class="col">
+    <div class="card">
+      <h5 class="card-header">Job Details (JSON)</h5>
+      <div class="card-body">
+        <pre class="mb-0"><code>{{ object.details|pprint }}</code></pre>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
