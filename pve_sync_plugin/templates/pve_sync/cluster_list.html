@@ -41,7 +41,7 @@
             <td>{{ cluster.pve_host }}</td>
             <td>{{ cluster.netbox_cluster|placeholder }}</td>
             <td>{{ cluster.enabled|yesno:"Yes,No" }}</td>
-            <td>{% if cluster.last_sync %}{{ cluster.last_sync|annotated_date }}{% else %}-{% endif %}</td>
+        <td>{% if cluster.last_sync %}{{ cluster.last_sync|date:"Y-m-d H:i" }}{% else %}-{% endif %}</td>
             <td>{{ cluster.last_sync_status|default:"-" }}</td>
             <td class="text-end">
               <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline">

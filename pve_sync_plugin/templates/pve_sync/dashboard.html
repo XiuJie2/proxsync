@@ -87,7 +87,7 @@
               <td><a href="{{ c.get_absolute_url }}">{{ c.name }}</a></td>
               <td>{{ c.pve_host }}</td>
               <td>{{ c.get_sync_schedule_display }}</td>
-              <td>{% if c.last_sync %}{{ c.last_sync|annotated_date }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
+              <td>{% if c.last_sync %}{{ c.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
               <td>
                 {% if c.last_sync_status == 'success' %}
                   <span class="badge text-bg-success">Success</span>
@@ -157,8 +157,8 @@
             <td>{{ job.cluster_name }}</td>
             <td><span class="badge text-bg-{{ job.status_badge }}">{{ job.get_status_display }}</span></td>
             <td>{{ job.get_trigger_display }}</td>
-            <td>{{ job.start_time|annotated_date }}</td>
-            <td>{% if job.end_time %}{{ job.end_time|annotated_date }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{{ job.start_time|date:"Y-m-d H:i" }}</td>
+            <td>{% if job.end_time %}{{ job.end_time|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>{{ job.success_vms }}/{{ job.total_vms }}</td>
             <td>{{ job.nodes_offline|add:job.config_drifts|add:job.resource_alerts }}</td>
           </tr>

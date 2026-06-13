@@ -25,11 +25,11 @@
         </tr>
         <tr>
           <th scope="row">Started</th>
-          <td>{{ object.start_time|annotated_date }}</td>
+        <td>{{ object.start_time|date:"Y-m-d H:i" }}</td>
         </tr>
         <tr>
           <th scope="row">Finished</th>
-          <td>{% if object.end_time %}{{ object.end_time|annotated_date }}{% else %}—{% endif %}</td>
+        <td>{% if object.end_time %}{{ object.end_time|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
         </tr>
         <tr>
           <th scope="row">Duration</th>

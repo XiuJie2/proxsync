@@ -24,7 +24,7 @@
         <tr><th scope="row">Cluster Type</th><td>{% if object.netbox_cluster_type %}<a href="{{ object.netbox_cluster_type.get_absolute_url }}">{{ object.netbox_cluster_type }}</a>{% else %}—{% endif %}</td></tr>
         <tr><th scope="row">Cluster</th><td>{% if object.netbox_cluster %}<a href="{{ object.netbox_cluster.get_absolute_url }}">{{ object.netbox_cluster }}</a>{% else %}—{% endif %}</td></tr>
         <tr><th scope="row">Schedule</th><td>{{ object.get_sync_schedule_display }}</td></tr>
-        <tr><th scope="row">Last Sync</th><td>{% if object.last_sync %}{{ object.last_sync|annotated_date }}{% else %}Never{% endif %}</td></tr>
+      <tr><th scope="row">Last Sync</th><td>{% if object.last_sync %}{{ object.last_sync|date:"Y-m-d H:i" }}{% else %}Never{% endif %}</td></tr>
         <tr><th scope="row">Last Status</th><td>{{ object.last_sync_status|default:"—" }}</td></tr>
       </table>
     </div>
