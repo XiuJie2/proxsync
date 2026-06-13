@@ -15,7 +15,7 @@ from .choices import (
     SyncScheduleChoices,
     WebhookEventChoices,
 )
-from .models import PveClusterConfig, PvePluginSettings, PveSyncJob, PveWebhookEvent
+from .models import PbsServerConfig, PveClusterConfig, PvePluginSettings, PveSyncJob, PveWebhookEvent
 
 
 # ---------------------------------------------------------------------------
@@ -25,10 +25,6 @@ from .models import PveClusterConfig, PvePluginSettings, PveSyncJob, PveWebhookE
 class PvePluginSettingsForm(NetBoxModelForm):
     """Editable singleton settings for plugin-wide defaults."""
 
-    pve_api_secret = forms.CharField(
-        required=False,
-        widget=forms.PasswordInput(render_value=True),
-    )
     netbox_token = forms.CharField(
         required=False,
         widget=forms.PasswordInput(render_value=True),
@@ -45,11 +41,6 @@ class PvePluginSettingsForm(NetBoxModelForm):
     class Meta:
         model = PvePluginSettings
         fields = (
-            "pve_api_host",
-            "pve_api_user",
-            "pve_api_token",
-            "pve_api_secret",
-            "pve_api_verify_ssl",
             "netbox_url",
             "netbox_token",
             "telegram_bot_token",
@@ -65,14 +56,13 @@ class PvePluginSettingsForm(NetBoxModelForm):
             "enable_backup_sync",
         )
         help_texts = {
-            "pve_api_host": "Proxmox VE API hostname or IP (e.g. pve01.example.com)",
-            "pve_api_user": "PVE API user (e.g. root@pam)",
-            "pve_api_token": "API Token ID (not the secret value)",
-            "pve_api_secret": "API Token Secret",
             "netbox_url": "NetBox base URL (e.g. https://netbox.example.com)",
             "netbox_token": "NetBox API token with write permissions",
             "telegram_bot_token": "Telegram bot token for notifications (optional)",
-            "telegram_chat_id": "Telegram chat/group ID for notifications (optional)",
+            "telegram_chat_id": (
+                "Telegram chat/group ID for notifications (optional). "
+                "For group chats, the ID must start with a minus sign, e.g. -1002581073501"
+            ),
             "webhook_secret": "HMAC shared secret for PVE webhook signature verification",
             "state_db_path": "Path to SQLite state database for incremental sync",
         }
@@ -164,3 +154,37 @@ class PveClusterConfigFilterForm(NetBoxModelFilterSetForm):
         choices=SyncScheduleChoices.choices,
         required=False,
     )
+
+
+class PbsServerConfigForm(NetBoxModelForm):
+    """PBS server configuration form."""
+
+    pbs_token_secret = forms.CharField(
+        widget=forms.PasswordInput(render_value=True),
+    )
+    netbox_site = DynamicModelChoiceField(
+        queryset=Site.objects.all(),
+        required=False,
+    )
+
+    class Meta:
+        model = PbsServerConfig
+        fields = (
+            "name",
+            "description",
+            "pbs_host",
+            "pbs_token_name",
+            "pbs_token_secret",
+            "pbs_verify_ssl",
+            "pbs_node_name",
+            "netbox_site",
+            "enabled",
+        )
+
+
+class PbsServerConfigFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for PBS server config list views."""
+
+    model = PbsServerConfig
+
+    enabled = forms.NullBooleanField(required=False)

@@ -12,6 +12,7 @@ from .choices import (
     WebhookEventChoices,
 )
 from .models import (
+    PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
     PveSyncJob,
@@ -73,6 +74,23 @@ class PveClusterConfigFilterSet(NetBoxModelFilterSet):
     class Meta:
         model = PveClusterConfig
         fields = ["id", "name", "enabled", "sync_schedule"]
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(name__icontains=value) | queryset.filter(
+            description__icontains=value
+        )
+
+
+class PbsServerConfigFilterSet(NetBoxModelFilterSet):
+    """Filter PBS server configs by name and enabled state."""
+
+    enabled = django_filters.BooleanFilter()
+
+    class Meta:
+        model = PbsServerConfig
+        fields = ["id", "name", "enabled"]
 
     def search(self, queryset, name, value):
         if not value.strip():

@@ -5,6 +5,7 @@ import django_tables2 as tables
 from netbox.tables import NetBoxTable, columns
 
 from .models import (
+    PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
     PveSyncJob,
@@ -31,6 +32,7 @@ class PveSyncJobTable(NetBoxTable):
         orderable=False,
     )
     triggered_by = tables.Column(linkify=True)
+    actions = columns.ActionsColumn(actions=("delete", "changelog"))
 
     class Meta(NetBoxTable.Meta):
         model = PveSyncJob
@@ -78,6 +80,7 @@ class PveWebhookEventTable(NetBoxTable):
     processed = columns.BooleanColumn()
     received_at = columns.DateTimeColumn()
     sync_job = tables.Column(linkify=True)
+    actions = columns.ActionsColumn(actions=("delete", "changelog"))
 
     class Meta(NetBoxTable.Meta):
         model = PveWebhookEvent
@@ -146,6 +149,45 @@ class PveClusterConfigTable(NetBoxTable):
 
 
 # ---------------------------------------------------------------------------
+# PbsServerConfig
+# ---------------------------------------------------------------------------
+
+class PbsServerConfigTable(NetBoxTable):
+    """Table for PBS server connection profiles."""
+
+    name = tables.Column(linkify=True)
+    pbs_host = tables.Column()
+    pbs_node_name = tables.Column()
+    enabled = columns.BooleanColumn()
+    netbox_site = tables.Column(linkify=True)
+    last_sync = columns.DateTimeColumn()
+    last_sync_status = tables.Column()
+    actions = columns.ActionsColumn(actions=("edit", "delete", "changelog"))
+
+    class Meta(NetBoxTable.Meta):
+        model = PbsServerConfig
+        fields = (
+            "pk",
+            "name",
+            "pbs_host",
+            "pbs_node_name",
+            "enabled",
+            "netbox_site",
+            "last_sync",
+            "last_sync_status",
+        )
+        default_columns = (
+            "name",
+            "pbs_host",
+            "pbs_node_name",
+            "enabled",
+            "netbox_site",
+            "last_sync",
+            "last_sync_status",
+        )
+
+
+# ---------------------------------------------------------------------------
 # PveBackupStatus
 # ---------------------------------------------------------------------------
 
@@ -162,6 +204,7 @@ class PveBackupStatusTable(NetBoxTable):
         orderable=False,
     )
     next_backup = columns.DateTimeColumn()
+    actions = columns.ActionsColumn(actions=("changelog",))
 
     class Meta(NetBoxTable.Meta):
         model = PveBackupStatus

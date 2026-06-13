@@ -3,9 +3,11 @@
 import datetime
 import logging
 import os
+from datetime import timezone as dt_timezone
 
 from django.utils import timezone
 
+from .choices import BackupStatusChoices
 from .models import PveClusterConfig, PveSyncJob, PveWebhookEvent
 from .utils import get_plugin_config
 
@@ -162,3 +164,234 @@ def _update_cluster_status(job):
     cluster.last_sync = job.end_time
     cluster.last_sync_status = job.status
     cluster.save(update_fields=["last_sync", "last_sync_status"])
+
+
+# ---------------------------------------------------------------------------
+# PBS sync
+# ---------------------------------------------------------------------------
+
+def enqueue_pbs_sync(job, pbs_server):
+    """Queue a PBS sync job on NetBox's default RQ queue."""
+    try:
+        import django_rq
+
+        rq_job = django_rq.get_queue("default").enqueue(
+            run_pbs_sync_job, job.id, pbs_server.pk
+        )
+        job.details["rq_job_id"] = rq_job.id
+        job.save(update_fields=["details"])
+        return rq_job.id
+    except Exception as exc:
+        job.status = "failed"
+        job.end_time = timezone.now()
+        job.details["queue_error"] = str(exc)
+        job.save(update_fields=["status", "end_time", "details"])
+        raise
+
+
+def run_pbs_sync_job(job_id, pbs_server_pk):
+    """Run a PBS sync from a PbsServerConfig record."""
+    from .models import PbsServerConfig
+
+    job = PveSyncJob.objects.get(pk=job_id)
+    pbs = PbsServerConfig.objects.get(pk=pbs_server_pk)
+    job.status = "running"
+    job.save(update_fields=["status"])
+
+    try:
+        import os
+
+        # Set environment variables expected by the PBS sync script
+        os.environ["PBS_HOST"] = pbs.pbs_host
+        os.environ["PBS_TOKEN_NAME"] = pbs.pbs_token_name
+        os.environ["PBS_TOKEN_SECRET"] = pbs.pbs_token_secret
+        os.environ["PBS_VERIFY_SSL"] = "true" if pbs.pbs_verify_ssl else "false"
+        os.environ["PBS_NODE_NAME"] = pbs.pbs_node_name
+        os.environ["NB_API_URL"] = get_plugin_config("netbox_url", "")
+        os.environ["NB_API_TOKEN"] = get_plugin_config("netbox_token", "")
+
+        from pbs215_sync import PBSToNetBoxSync
+
+        syncer = PBSToNetBoxSync()
+        syncer.sync()
+
+        # Write backup records to PveBackupStatus
+        try:
+            backup_records = _fetch_pbs_snapshots(pbs)
+            updated, skipped = _apply_pbs_backup_status(backup_records)
+            job.details["backup_updated"] = updated
+            job.details["backup_skipped"] = skipped
+            logger.info("PBS backup status: %d updated, %d no VM match", updated, skipped)
+        except Exception as exc:
+            logger.warning("PBS backup status sync failed (non-fatal): %s", exc)
+
+        job.status = "success"
+        job.end_time = timezone.now()
+        job.save()
+
+        pbs.last_sync = job.end_time
+        pbs.last_sync_status = "success"
+        pbs.save(update_fields=["last_sync", "last_sync_status"])
+
+        logger.info("PBS sync job %s completed for server %s", job.id, pbs.name)
+        return {"status": "success", "job_id": job.id}
+
+    except Exception as exc:
+        logger.exception("PBS sync job %s failed for server %s", job.id, pbs.name)
+        job.status = "failed"
+        job.end_time = timezone.now()
+        job.details["error"] = str(exc)
+        job.save(update_fields=["status", "end_time", "details"])
+
+        pbs.last_sync = job.end_time
+        pbs.last_sync_status = "failed"
+        pbs.save(update_fields=["last_sync", "last_sync_status"])
+
+        return {"status": "failed", "job_id": job.id, "error": str(exc)}
+
+    finally:
+        # Clean up PBS-specific env vars
+        for key in ["PBS_HOST", "PBS_TOKEN_NAME", "PBS_TOKEN_SECRET",
+                    "PBS_VERIFY_SSL", "PBS_NODE_NAME"]:
+            os.environ.pop(key, None)
+
+
+# ---------------------------------------------------------------------------
+# PBS backup status helpers
+# ---------------------------------------------------------------------------
+
+def _fetch_pbs_snapshots(pbs):
+    """Query PBS API and return the latest backup per vmid across all datastores.
+
+    Returns:
+        dict: {(backup_type, vmid_str): {'last_backup': datetime, 'size': int, 'pve_backup_id': str}}
+    """
+    import urllib3
+    import requests
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    session = requests.Session()
+    session.headers.update({
+        "Authorization": f"PBSAPIToken={pbs.pbs_token_name}:{pbs.pbs_token_secret}",
+        "Accept": "application/json",
+    })
+    host = pbs.pbs_host.rstrip("/")
+    verify = pbs.pbs_verify_ssl
+
+    # Get datastore list
+    try:
+        resp = session.get(f"{host}/api2/json/admin/datastore", verify=verify, timeout=15)
+        datastores = resp.json().get("data", []) if resp.status_code == 200 else []
+    except Exception as exc:
+        logger.warning("PBS: cannot list datastores: %s", exc)
+        return {}
+
+    best = {}  # (type, vmid) -> best snapshot info
+
+    for ds in datastores:
+        store = ds.get("store") or ds.get("name")
+        if not store:
+            continue
+        try:
+            resp = session.get(
+                f"{host}/api2/json/admin/datastore/{store}/snapshots",
+                verify=verify, timeout=30,
+            )
+            if resp.status_code != 200:
+                continue
+            snapshots = resp.json().get("data", [])
+        except Exception as exc:
+            logger.warning("PBS: cannot list snapshots for %s: %s", store, exc)
+            continue
+
+        for snap in snapshots:
+            btype = snap.get("backup-type", "vm")
+            vmid = str(snap.get("backup-id", ""))
+            if not vmid or btype not in ("vm", "ct"):
+                continue
+
+            ts = snap.get("backup-time", 0)
+            backup_dt = (
+                datetime.datetime.fromtimestamp(ts, tz=dt_timezone.utc) if ts else None
+            )
+            size = snap.get("size", 0) or 0
+
+            key = (btype, vmid)
+            existing = best.get(key)
+            if existing is None or (backup_dt and backup_dt > existing["last_backup"]):
+                best[key] = {
+                    "last_backup": backup_dt,
+                    "size": size,
+                    "pve_backup_id": f"{btype}/{vmid}",
+                }
+
+    logger.info("PBS: found latest backups for %d VMs/CTs", len(best))
+    return best
+
+
+def _apply_pbs_backup_status(backup_records):
+    """Write PBS backup data into PveBackupStatus Django model records.
+
+    Matching priority:
+      1. Existing PveBackupStatus where pve_backup_id already matches.
+      2. VirtualMachine with custom_field_data__pve_vmid == vmid.
+
+    Returns:
+        (updated: int, skipped: int)
+    """
+    from .models import PveBackupStatus
+    from virtualization.models import VirtualMachine
+
+    updated = 0
+    skipped = 0
+
+    for (btype, vmid), info in backup_records.items():
+        pve_backup_id = info["pve_backup_id"]
+        last_backup = info.get("last_backup")
+        size = info.get("size", 0)
+
+        vm = None
+
+        # 1. Find via existing pve_backup_id link
+        existing = (
+            PveBackupStatus.objects.filter(pve_backup_id=pve_backup_id)
+            .select_related("vm")
+            .first()
+        )
+        if existing:
+            vm = existing.vm
+
+        # 2. Find via custom field pve_vmid
+        if vm is None:
+            try:
+                vm = VirtualMachine.objects.filter(
+                    custom_field_data__pve_vmid=int(vmid)
+                ).first()
+            except Exception:
+                pass
+
+        if vm is None:
+            skipped += 1
+            logger.debug("PBS: no NetBox VM for %s/%s — skipping", btype, vmid)
+            continue
+
+        status_obj, _ = PveBackupStatus.objects.get_or_create(vm=vm)
+
+        # Only update if this backup is newer than what is stored
+        if last_backup and (status_obj.last_backup is None or last_backup > status_obj.last_backup):
+            age_days = (timezone.now() - last_backup).days
+            status_obj.last_backup = last_backup
+            status_obj.backup_size = size if size else status_obj.backup_size
+            status_obj.pve_backup_id = pve_backup_id
+            status_obj.backup_status = (
+                BackupStatusChoices.STATUS_SUCCESS
+                if age_days <= 7
+                else BackupStatusChoices.STATUS_FAILED
+            )
+            status_obj.save(update_fields=[
+                "last_backup", "backup_size", "pve_backup_id", "backup_status",
+            ])
+            updated += 1
+
+    return updated, skipped

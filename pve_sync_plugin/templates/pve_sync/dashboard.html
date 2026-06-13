@@ -2,19 +2,18 @@
 {% load helpers %}
 {% load pve_sync_tags %}
 
-{% block title %}PVE Sync Dashboard{% endblock %}
+{% block title %}Proxmox Sync Dashboard{% endblock %}
 
 {% block content %}
 <div class="row mb-3">
   <div class="col col-md-8">
-    <h1><i class="mdi mdi-server-network text-primary"></i> PVE Sync Dashboard</h1>
-    <div class="text-muted">Proxmox VE to NetBox synchronization overview</div>
+    <h1><i class="mdi mdi-hexagon-multiple text-primary"></i> Proxmox Sync Dashboard</h1>
+    <div class="text-muted">Proxmox VE &amp; PBS to NetBox synchronization overview</div>
   </div>
   <div class="col col-md-4 text-end">
     <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline-flex gap-2">
       {% csrf_token %}
       <select name="cluster" class="form-select form-select-sm" style="width: auto;">
-        <option value="default">default</option>
         {% for cluster in clusters %}
           <option value="{{ cluster.name }}">{{ cluster.name }}</option>
         {% endfor %}
@@ -62,21 +61,23 @@
   </div>
 </div>
 
-{# Status row #}
+{# Clusters row #}
 <div class="row mb-4">
   <div class="col-md-6">
     <div class="card shadow-sm">
       <h5 class="card-header bg-transparent">
-        <i class="mdi mdi-server"></i> Active Clusters
+        <i class="mdi mdi-server"></i> PVE Clusters
+        <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}" class="float-end btn btn-sm btn-outline-success">
+          <i class="mdi mdi-plus-thick"></i> Add
+        </a>
       </h5>
-      <div class="card-body">
+      <div class="card-body p-0">
         {% if clusters %}
         <table class="table table-sm table-hover mb-0">
           <thead>
             <tr>
               <th>Name</th>
               <th>Host</th>
-              <th>Schedule</th>
               <th>Last Sync</th>
               <th>Status</th>
             </tr>
@@ -86,7 +87,6 @@
             <tr>
               <td><a href="{{ c.get_absolute_url }}">{{ c.name }}</a></td>
               <td>{{ c.pve_host }}</td>
-              <td>{{ c.get_sync_schedule_display }}</td>
               <td>{% if c.last_sync %}{{ c.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
               <td>
                 {% if c.last_sync_status == 'success' %}
@@ -104,11 +104,72 @@
           </tbody>
         </table>
         {% else %}
-          <p class="text-muted mb-0">No clusters configured. <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}">Add one →</a></p>
+          <div class="p-3 text-muted">No PVE clusters configured. <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}">Add one →</a></div>
         {% endif %}
       </div>
     </div>
   </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <h5 class="card-header bg-transparent">
+        <i class="mdi mdi-database-check"></i> PBS Servers
+        <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_add' %}" class="float-end btn btn-sm btn-outline-success">
+          <i class="mdi mdi-plus-thick"></i> Add
+        </a>
+      </h5>
+      <div class="card-body p-0">
+        {% if pbs_servers %}
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Host</th>
+              <th>Last Sync</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for pbs in pbs_servers %}
+            <tr>
+              <td><a href="{{ pbs.get_absolute_url }}">{{ pbs.name }}</a></td>
+              <td>{{ pbs.pbs_host }}</td>
+              <td>{% if pbs.last_sync %}{{ pbs.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
+              <td>
+                {% if pbs.last_sync_status == 'success' %}
+                  <span class="badge text-bg-success">Success</span>
+                {% elif pbs.last_sync_status == 'failed' %}
+                  <span class="badge text-bg-danger">Failed</span>
+                {% elif pbs.last_sync_status %}
+                  <span class="badge text-bg-secondary">{{ pbs.last_sync_status }}</span>
+                {% else %}
+                  <span class="badge text-bg-info">New</span>
+                {% endif %}
+              </td>
+              <td>
+                <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-pbs-sync' pbs.pk %}" class="d-inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="return_url" value="{{ request.path }}">
+                  <button type="submit" class="btn btn-xs btn-outline-success" title="Sync now">
+                    <i class="mdi mdi-sync"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <div class="p-3 text-muted">No PBS servers configured. <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_add' %}">Add one →</a></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Info row: alerts + webhook #}
+<div class="row mb-4">
   <div class="col-md-6">
     <div class="card shadow-sm">
       <h5 class="card-header bg-transparent">
@@ -117,7 +178,7 @@
       <div class="card-body">
         <ul class="list-group list-group-flush">
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-backup-restore text-warning"></i> Stale Backups (>7d)</span>
+            <span><i class="mdi mdi-backup-restore text-warning"></i> Stale Backups (&gt;7d)</span>
             <span class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill">{{ backup_alerts }}</span>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -125,6 +186,27 @@
             <span class="badge text-bg-{% if pending_webhooks %}info{% else %}success{% endif %} rounded-pill">{{ pending_webhooks }}</span>
           </li>
         </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <h5 class="card-header bg-transparent">
+        <i class="mdi mdi-webhook"></i> Webhook Info
+      </h5>
+      <div class="card-body">
+        <p class="mb-1 text-muted small">Send PVE events to this endpoint (POST, HMAC-verified):</p>
+        <div class="input-group input-group-sm">
+          <input type="text" class="form-control font-monospace" value="{{ webhook_url }}" readonly>
+          <button class="btn btn-outline-secondary" type="button"
+                  onclick="navigator.clipboard.writeText('{{ webhook_url }}')">
+            <i class="mdi mdi-content-copy"></i>
+          </button>
+        </div>
+        <p class="mt-2 mb-0 text-muted small">
+          Set <code>webhook_secret</code> in <a href="{% url 'plugins:pve_sync_plugin:settings' %}">Settings</a>
+          to enable HMAC signature verification.
+        </p>
       </div>
     </div>
   </div>
@@ -141,13 +223,13 @@
       <thead>
         <tr>
           <th>ID</th>
-          <th>Cluster</th>
+          <th>Cluster / Server</th>
           <th>Status</th>
           <th>Trigger</th>
           <th>Started</th>
           <th>Finished</th>
           <th>VMs</th>
-          <th>Alerts</th>
+          <th>Error</th>
         </tr>
       </thead>
       <tbody>
@@ -160,7 +242,7 @@
             <td>{{ job.start_time|date:"Y-m-d H:i" }}</td>
             <td>{% if job.end_time %}{{ job.end_time|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>{{ job.success_vms }}/{{ job.total_vms }}</td>
-            <td>{{ job.nodes_offline|add:job.config_drifts|add:job.resource_alerts }}</td>
+            <td>{% if job.error_message %}<span class="text-danger small" title="{{ job.error_message }}">{{ job.error_message|truncatechars:60 }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
           </tr>
         {% empty %}
           <tr>

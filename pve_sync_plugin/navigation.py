@@ -51,9 +51,22 @@ settings_item = PluginMenuItem(
     link_text="Settings",
 )
 
+pbs_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:pbsserverconfig_list",
+    link_text="PBS Servers",
+    buttons=(
+        PluginMenuButton(
+            "plugins:pve_sync_plugin:pbsserverconfig_add",
+            "Add",
+            "mdi mdi-plus-thick",
+            ButtonColorChoices.GREEN,
+        ),
+    ),
+)
+
 
 menu = PluginMenu(
-    label="PVE Sync",
+    label="Proxmox Sync",
     groups=(
         (
             "Overview",
@@ -69,8 +82,8 @@ menu = PluginMenu(
         ),
         (
             "Configuration",
-            (clusters_item, settings_item),
+            (clusters_item, pbs_item, settings_item),
         ),
     ),
-    icon_class="mdi mdi-server-network",
+    icon_class="mdi mdi-hexagon-multiple",
 )

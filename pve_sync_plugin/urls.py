@@ -7,7 +7,10 @@ Routes are mounted by NetBox under /plugins/pve-sync/
 
 from django.urls import path
 
+from netbox.views.generic import ObjectChangeLogView
+
 from . import views
+from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveSyncJob, PveWebhookEvent
 
 app_name = "pve_sync_plugin"
 
@@ -39,6 +42,12 @@ urlpatterns = [
         views.PveSyncJobBulkDeleteView.as_view(),
         name="pvesyncjob_bulk_delete",
     ),
+    path(
+        "jobs/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="pvesyncjob_changelog",
+        kwargs={"model": PveSyncJob},
+    ),
 
     # --- PveWebhookEvent CRUD ---
     path(
@@ -60,6 +69,12 @@ urlpatterns = [
         "events/delete/",
         views.PveWebhookEventBulkDeleteView.as_view(),
         name="pvewebhookevent_bulk_delete",
+    ),
+    path(
+        "events/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="pvewebhookevent_changelog",
+        kwargs={"model": PveWebhookEvent},
     ),
 
     # --- PveClusterConfig CRUD ---
@@ -93,6 +108,12 @@ urlpatterns = [
         views.PveClusterConfigBulkDeleteView.as_view(),
         name="pveclusterconfig_bulk_delete",
     ),
+    path(
+        "clusters/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="pveclusterconfig_changelog",
+        kwargs={"model": PveClusterConfig},
+    ),
 
     # --- PveBackupStatus read-only ---
     path(
@@ -104,6 +125,43 @@ urlpatterns = [
         "backup-status/<int:pk>/",
         views.PveBackupStatusView.as_view(),
         name="pvebackupstatus",
+    ),
+    path(
+        "backup-status/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="pvebackupstatus_changelog",
+        kwargs={"model": PveBackupStatus},
+    ),
+
+    # --- PbsServerConfig CRUD ---
+    path("pbs/", views.PbsServerConfigListView.as_view(), name="pbsserverconfig_list"),
+    path("pbs/add/", views.PbsServerConfigEditView.as_view(), name="pbsserverconfig_add"),
+    path("pbs/<int:pk>/", views.PbsServerConfigView.as_view(), name="pbsserverconfig"),
+    path(
+        "pbs/<int:pk>/edit/",
+        views.PbsServerConfigEditView.as_view(),
+        name="pbsserverconfig_edit",
+    ),
+    path(
+        "pbs/<int:pk>/delete/",
+        views.PbsServerConfigDeleteView.as_view(),
+        name="pbsserverconfig_delete",
+    ),
+    path(
+        "pbs/delete/",
+        views.PbsServerConfigBulkDeleteView.as_view(),
+        name="pbsserverconfig_bulk_delete",
+    ),
+    path(
+        "pbs/<int:pk>/sync/",
+        views.TriggerPbsSyncView.as_view(),
+        name="trigger-pbs-sync",
+    ),
+    path(
+        "pbs/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="pbsserverconfig_changelog",
+        kwargs={"model": PbsServerConfig},
     ),
 
     # Webhook receiver (external, no auth, HMAC-verified)

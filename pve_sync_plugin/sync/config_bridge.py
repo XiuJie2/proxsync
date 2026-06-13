@@ -99,17 +99,10 @@ def build_runtime_config_from_db(cluster_name="default"):
         )
         logical_name = cluster.name
     else:
-        pve_host = get_plugin_config("pve_api_host", "")
-        pve_user = get_plugin_config("pve_api_user", "root@pam")
-        pve_token = get_plugin_config("pve_api_token", "")
-        pve_secret = get_plugin_config("pve_api_secret", "")
-        verify_ssl = get_plugin_config("pve_api_verify_ssl", False)
-        site_name = get_plugin_config("default_site", "Main Datacenter")
-        cluster_type = get_plugin_config("default_cluster_type", "Proxmox")
-        netbox_cluster = get_plugin_config(
-            "default_netbox_cluster", "Proxmox Cluster"
+        raise ConfigValidationError(
+            f"No enabled PVE cluster config found for cluster '{cluster_name}'. "
+            "Please add a cluster in PVE Clusters → Add Cluster."
         )
-        logical_name = cluster_name
 
     return {
         "clusters": [

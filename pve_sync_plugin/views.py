@@ -15,13 +15,18 @@ import json
 import hmac
 import hashlib
 
+from netbox.context import current_request as _nb_current_request
+
 from .filtersets import (
+    PbsServerConfigFilterSet,
     PveBackupStatusFilterSet,
     PveClusterConfigFilterSet,
     PveSyncJobFilterSet,
     PveWebhookEventFilterSet,
 )
 from .forms import (
+    PbsServerConfigFilterForm,
+    PbsServerConfigForm,
     PveClusterConfigFilterForm,
     PveClusterConfigForm,
     PvePluginSettingsForm,
@@ -29,6 +34,7 @@ from .forms import (
     PveWebhookEventFilterForm,
 )
 from .models import (
+    PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
     PvePluginSettings,
@@ -36,6 +42,7 @@ from .models import (
     PveWebhookEvent,
 )
 from .tables import (
+    PbsServerConfigTable,
     PveBackupStatusTable,
     PveClusterConfigTable,
     PveSyncJobTable,
@@ -66,6 +73,7 @@ class DashboardView(PermissionRequiredMixin, View):
             last_backup__lt=timezone.now() - timezone.timedelta(days=7)
         ).count()
         clusters = PveClusterConfig.objects.filter(enabled=True)
+        pbs_servers = PbsServerConfig.objects.filter(enabled=True).select_related("netbox_site")
 
         # Aggregate job stats in a single query instead of 3 separate ones
         job_stats = PveSyncJob.objects.aggregate(
@@ -74,14 +82,20 @@ class DashboardView(PermissionRequiredMixin, View):
             failed=Count("id", filter=Q(status="failed")),
         )
 
+        webhook_url = request.build_absolute_uri(
+            reverse("plugins:pve_sync_plugin:webhook")
+        )
+
         context = {
             "recent_jobs": recent_jobs,
             "pending_webhooks": pending_webhooks,
             "backup_alerts": backup_alerts,
             "clusters": clusters,
+            "pbs_servers": pbs_servers,
             "total_jobs": job_stats["total"],
             "success_jobs": job_stats["success"],
             "failed_jobs": job_stats["failed"],
+            "webhook_url": webhook_url,
         }
         return render(request, "pve_sync/dashboard.html", context)
 
@@ -169,6 +183,61 @@ class PveClusterConfigBulkDeleteView(generic.BulkDeleteView):
 
 
 # ============================================================================
+# PbsServerConfig Views
+# ============================================================================
+
+class PbsServerConfigListView(generic.ObjectListView):
+    queryset = PbsServerConfig.objects.select_related("netbox_site")
+    table = PbsServerConfigTable
+    filterset = PbsServerConfigFilterSet
+    filterset_form = PbsServerConfigFilterForm
+
+
+class PbsServerConfigView(generic.ObjectView):
+    queryset = PbsServerConfig.objects.all()
+    template_name = "pve_sync/pbsserverconfig.html"
+
+
+class PbsServerConfigEditView(generic.ObjectEditView):
+    queryset = PbsServerConfig.objects.all()
+    form = PbsServerConfigForm
+
+
+class PbsServerConfigDeleteView(generic.ObjectDeleteView):
+    queryset = PbsServerConfig.objects.all()
+
+
+class PbsServerConfigBulkDeleteView(generic.BulkDeleteView):
+    queryset = PbsServerConfig.objects.all()
+    table = PbsServerConfigTable
+
+
+class TriggerPbsSyncView(PermissionRequiredMixin, View):
+    """Web GUI endpoint for manually triggering a PBS sync."""
+
+    permission_required = "pve_sync_plugin.add_pvesyncjob"
+
+    def post(self, request, pbs_pk):
+        pbs = get_object_or_404(PbsServerConfig, pk=pbs_pk, enabled=True)
+        try:
+            job = PveSyncJob.objects.create(
+                cluster_name=f"pbs:{pbs.name}",
+                status="pending",
+                trigger="manual",
+                triggered_by=request.user if request.user.is_authenticated else None,
+                details={"pbs_server_id": pbs.pk, "pbs_server_name": pbs.name},
+            )
+            from .tasks import enqueue_pbs_sync
+            enqueue_pbs_sync(job, pbs)
+            messages.success(request, f"PBS sync for {pbs.name} queued as job #{job.id}.")
+        except Exception as exc:
+            messages.error(request, f"Unable to start PBS sync: {exc}")
+        return redirect(
+            request.POST.get("return_url") or reverse("plugins:pve_sync_plugin:dashboard")
+        )
+
+
+# ============================================================================
 # PveBackupStatus Views
 # ============================================================================
 
@@ -202,7 +271,7 @@ class PvePluginSettingsView(PermissionRequiredMixin, View):
         form = PvePluginSettingsForm(request.POST, instance=settings_obj)
         if form.is_valid():
             form.save()
-            messages.success(request, "PVE Sync settings updated.")
+            messages.success(request, "Proxmox Sync settings saved.")
             return redirect(reverse("plugins:pve_sync_plugin:settings"))
         return render(request, "pve_sync/settings.html", {"form": form})
 
@@ -309,13 +378,20 @@ def webhook_receiver(request):
                     {"status": "error", "message": "Invalid signature"}, status=403
                 )
 
-        event = PveWebhookEvent.objects.create(
-            event_type=data.get("event", "unknown"),
-            node=data.get("node"),
-            vmid=data.get("vmid"),
-            vm_name=data.get("vmname"),
-            raw_data=data,
-        )
+        # Suppress changelog: webhook is unauthenticated so current_request.user
+        # would be AnonymousUser which ObjectChange.user rejects.
+        _saved_request = _nb_current_request.get()
+        _nb_current_request.set(None)
+        try:
+            event = PveWebhookEvent.objects.create(
+                event_type=data.get("event", "unknown"),
+                node=data.get("node"),
+                vmid=data.get("vmid"),
+                vm_name=data.get("vmname"),
+                raw_data=data,
+            )
+        finally:
+            _nb_current_request.set(_saved_request)
 
         rq_job_id = enqueue_webhook_event(event)
 

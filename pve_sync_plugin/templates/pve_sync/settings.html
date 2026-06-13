@@ -2,32 +2,22 @@
 {% load helpers %}
 {% load form_helpers %}
 
-{% block title %}PVE Sync Settings{% endblock %}
+{% block title %}Proxmox Sync Settings{% endblock %}
 
 {% block content %}
 <div class="row mb-3">
   <div class="col">
-    <h1><i class="mdi mdi-cog text-primary"></i> PVE Sync Settings</h1>
-    <div class="text-muted">Configure plugin-wide defaults for PVE-NetBox synchronization</div>
+    <h1><i class="mdi mdi-cog text-primary"></i> Proxmox Sync Settings</h1>
+    <div class="text-muted">Configure plugin-wide defaults for Proxmox synchronization</div>
   </div>
 </div>
 
 <form method="post">
   {% csrf_token %}
+  {% for field in form.hidden_fields %}{{ field }}{% endfor %}
 
   <div class="row">
     <div class="col-md-6">
-      <div class="card mb-3">
-        <h5 class="card-header">Proxmox VE Connection</h5>
-        <div class="card-body">
-          {% render_field form.pve_api_host %}
-          {% render_field form.pve_api_user %}
-          {% render_field form.pve_api_token %}
-          {% render_field form.pve_api_secret %}
-          {% render_field form.pve_api_verify_ssl %}
-        </div>
-      </div>
-
       <div class="card mb-3">
         <h5 class="card-header">NetBox API</h5>
         <div class="card-body">
@@ -41,6 +31,17 @@
         <div class="card-body">
           {% render_field form.telegram_bot_token %}
           {% render_field form.telegram_chat_id %}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">Webhook</h5>
+        <div class="card-body">
+          {% render_field form.webhook_secret %}
+          <div class="alert alert-secondary mt-2 mb-0 py-2 px-3" style="font-size: 0.85rem;">
+            <i class="mdi mdi-webhook"></i>
+            Webhook endpoint: <code>/api/plugins/pve-sync/webhook/</code>
+          </div>
         </div>
       </div>
     </div>
@@ -61,7 +62,6 @@
       <div class="card mb-3">
         <h5 class="card-header">Advanced</h5>
         <div class="card-body">
-          {% render_field form.webhook_secret %}
           {% render_field form.state_db_path %}
           {% render_field form.enable_backup_sync %}
         </div>

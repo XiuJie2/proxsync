@@ -1,7 +1,7 @@
 <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-vm-sync' vm.pk %}" class="d-inline">
   {% csrf_token %}
   <input type="hidden" name="return_url" value="{{ request.path }}">
-  <button type="submit" class="btn btn-sm btn-primary" title="Start PVE sync">
-    <i class="mdi mdi-sync"></i> PVE Sync
+  <button type="submit" class="btn btn-sm btn-primary" title="Start Proxmox sync">
+    <i class="mdi mdi-sync"></i> Proxmox Sync
   </button>
 </form>

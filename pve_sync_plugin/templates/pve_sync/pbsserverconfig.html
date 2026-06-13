@@ -1,0 +1,69 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">PBS Server Connection</h5>
+      <table class="table table-hover attr-table">
+        <tr><th scope="row">Name</th><td>{{ object.name }}</td></tr>
+        <tr><th scope="row">Description</th><td>{{ object.description|default:"—" }}</td></tr>
+        <tr><th scope="row">Host</th><td><code>{{ object.pbs_host }}</code></td></tr>
+        <tr><th scope="row">Token Name</th><td><code>{{ object.pbs_token_name }}</code></td></tr>
+        <tr><th scope="row">Node Name</th><td>{{ object.pbs_node_name }}</td></tr>
+        <tr><th scope="row">Verify SSL</th><td>{{ object.pbs_verify_ssl|yesno:"Yes,No" }}</td></tr>
+        <tr><th scope="row">Enabled</th><td>{{ object.enabled|yesno:"Yes,No" }}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">NetBox Mapping & Sync Status</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Site</th>
+          <td>
+            {% if object.netbox_site %}
+              <a href="{{ object.netbox_site.get_absolute_url }}">{{ object.netbox_site }}</a>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">Last Sync</th>
+          <td>{% if object.last_sync %}{{ object.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">Last Status</th>
+          <td>
+            {% if object.last_sync_status == 'success' %}
+              <span class="badge text-bg-success">Success</span>
+            {% elif object.last_sync_status == 'failed' %}
+              <span class="badge text-bg-danger">Failed</span>
+            {% elif object.last_sync_status %}
+              <span class="badge text-bg-secondary">{{ object.last_sync_status }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      </table>
+    </div>
+    {% if object.enabled %}
+    <div class="card mt-3">
+      <div class="card-body text-center">
+        <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-pbs-sync' object.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="return_url" value="{{ request.path }}">
+          <button type="submit" class="btn btn-success">
+            <i class="mdi mdi-database-sync"></i> Sync This PBS Server Now
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

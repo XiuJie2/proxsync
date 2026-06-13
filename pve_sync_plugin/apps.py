@@ -1,12 +1,5 @@
 """
-PVE Sync Plugin App Config
-Django App 配置
+Compatibility shim — NetBox uses the PluginConfig defined in __init__.py.
+This file is kept so Django does not auto-discover a conflicting AppConfig.
 """
-
-from django.apps import AppConfig
-
-
-class PveSyncPluginConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name = 'pve_sync_plugin'
-    verbose_name = "PVE-NetBox 同步"
+from pve_sync_plugin import PveSyncPluginConfig  # noqa: F401

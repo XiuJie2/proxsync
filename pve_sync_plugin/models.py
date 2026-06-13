@@ -60,8 +60,8 @@ class PveSyncJob(NetBoxModel):
             models.Index(fields=["status", "start_time"]),
             models.Index(fields=["cluster_name"]),
         ]
-        verbose_name = "PVE Sync Job"
-        verbose_name_plural = "PVE Sync Jobs"
+        verbose_name = "Proxmox Sync Job"
+        verbose_name_plural = "Proxmox Sync Jobs"
 
     def __str__(self):
         return f"{self.cluster_name} - {self.get_status_display()} ({self.start_time})"
@@ -193,12 +193,6 @@ class PveBackupStatus(NetBoxModel):
 class PvePluginSettings(NetBoxModel):
     """Singleton settings editable from the NetBox Web UI."""
 
-    pve_api_host = models.CharField(max_length=200, blank=True)
-    pve_api_user = models.CharField(max_length=100, default="root@pam")
-    pve_api_token = models.CharField(max_length=100, blank=True)
-    pve_api_secret = models.CharField(max_length=200, blank=True)
-    pve_api_verify_ssl = models.BooleanField(default=False)
-
     netbox_url = models.URLField(blank=True)
     netbox_token = models.CharField(max_length=200, blank=True)
 
@@ -220,11 +214,11 @@ class PvePluginSettings(NetBoxModel):
     enable_backup_sync = models.BooleanField(default=True)
 
     class Meta:
-        verbose_name = "PVE Sync Settings"
-        verbose_name_plural = "PVE Sync Settings"
+        verbose_name = "Proxmox Sync Settings"
+        verbose_name_plural = "Proxmox Sync Settings"
 
     def __str__(self):
-        return "PVE Sync Settings"
+        return "Proxmox Sync Settings"
 
     def get_absolute_url(self):
         return reverse("plugins:pve_sync_plugin:settings")
@@ -303,3 +297,45 @@ class PveClusterConfig(NetBoxModel):
             return False
         recent = timezone.now() - datetime.timedelta(hours=24)
         return self.last_sync > recent and self.last_sync_status == "success"
+
+
+class PbsServerConfig(NetBoxModel):
+    """Proxmox Backup Server connection configuration."""
+
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    pbs_host = models.CharField(
+        max_length=200,
+        help_text="PBS API URL (e.g. https://pbs01:8007)",
+    )
+    pbs_token_name = models.CharField(
+        max_length=100,
+        help_text="API token (e.g. root@pam!apitoken)",
+    )
+    pbs_token_secret = models.CharField(max_length=200)
+    pbs_verify_ssl = models.BooleanField(default=False)
+    pbs_node_name = models.CharField(
+        max_length=100,
+        help_text="PBS node name",
+    )
+    netbox_site = models.ForeignKey(
+        "dcim.Site",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pbs_servers",
+    )
+    enabled = models.BooleanField(default=True)
+    last_sync = models.DateTimeField(null=True, blank=True)
+    last_sync_status = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "PBS Server Config"
+        verbose_name_plural = "PBS Server Configs"
+
+    def __str__(self):
+        return self.name
+
+    def get_absolute_url(self):
+        return reverse("plugins:pve_sync_plugin:pbsserverconfig", args=[self.pk])

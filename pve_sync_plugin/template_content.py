@@ -8,7 +8,7 @@ from .models import PveClusterConfig, PveSyncJob
 class VirtualMachineSyncButton(PluginTemplateExtension):
     """Add a PVE sync action to NetBox virtual machine detail pages."""
 
-    model = "virtualization.virtualmachine"
+    models = ["virtualization.virtualmachine"]
 
     def buttons(self):
         request = self.context.get("request")
