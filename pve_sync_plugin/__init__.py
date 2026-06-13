@@ -22,11 +22,6 @@ class PveSyncPluginConfig(PluginConfig):
 
     required_settings = []
     default_settings = {
-        "pve_api_host": "",
-        "pve_api_user": "root@pam",
-        "pve_api_token": "",
-        "pve_api_secret": "",
-        "pve_api_verify_ssl": False,
         "netbox_url": "",
         "netbox_token": "",
         "telegram_bot_token": "",

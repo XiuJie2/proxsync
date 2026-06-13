@@ -324,6 +324,7 @@ def _fetch_pbs_snapshots(pbs):
                     "last_backup": backup_dt,
                     "size": size,
                     "pve_backup_id": f"{btype}/{vmid}",
+                    "backup_path": f"{store}/{btype}/{vmid}",
                 }
 
     logger.info("PBS: found latest backups for %d VMs/CTs", len(best))
@@ -384,13 +385,14 @@ def _apply_pbs_backup_status(backup_records):
             status_obj.last_backup = last_backup
             status_obj.backup_size = size if size else status_obj.backup_size
             status_obj.pve_backup_id = pve_backup_id
+            status_obj.backup_path = info.get("backup_path", "")
             status_obj.backup_status = (
                 BackupStatusChoices.STATUS_SUCCESS
                 if age_days <= 7
                 else BackupStatusChoices.STATUS_FAILED
             )
             status_obj.save(update_fields=[
-                "last_backup", "backup_size", "pve_backup_id", "backup_status",
+                "last_backup", "backup_size", "pve_backup_id", "backup_path", "backup_status",
             ])
             updated += 1
 

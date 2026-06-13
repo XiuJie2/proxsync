@@ -110,6 +110,13 @@ class PveClusterConfigForm(NetBoxModelForm):
             "enabled",
             "sync_schedule",
         )
+        help_texts = {
+            "sync_schedule": (
+                "For reference only. Use a crontab or systemd timer calling "
+                "<code>manage.py pve_sync --cluster &lt;name&gt;</code> "
+                "at the desired interval."
+            ),
+        }
 
 
 # ---------------------------------------------------------------------------

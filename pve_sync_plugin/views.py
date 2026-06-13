@@ -219,9 +219,15 @@ class TriggerPbsSyncView(PermissionRequiredMixin, View):
 
     def post(self, request, pbs_pk):
         pbs = get_object_or_404(PbsServerConfig, pk=pbs_pk, enabled=True)
+        cluster_name = f"pbs:{pbs.name}"
+
+        if PveSyncJob.objects.filter(cluster_name=cluster_name, status__in=["pending", "running"]).exists():
+            messages.warning(request, f"PBS sync for {pbs.name} is already running.")
+            return redirect(request.POST.get("return_url") or reverse("plugins:pve_sync_plugin:dashboard"))
+
         try:
             job = PveSyncJob.objects.create(
-                cluster_name=f"pbs:{pbs.name}",
+                cluster_name=cluster_name,
                 status="pending",
                 trigger="manual",
                 triggered_by=request.user if request.user.is_authenticated else None,

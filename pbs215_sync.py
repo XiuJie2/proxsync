@@ -3,30 +3,31 @@
 pbs-sync: 同步 PBS 到 NetBox (修正整數類型衝突版本)
 """
 
+import logging
 import os
-import sys
 import re
-import json
 import urllib3
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Any
 
 import pynetbox
 import requests
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # 配置部分
 # ============================================================================
 
-PBS_HOST = os.environ.get('PBS215_HOST', 'https://localhost:8007')
+PBS_HOST = os.environ.get('PBS_HOST', 'https://localhost:8007')
 PBS_TOKEN_NAME = os.environ.get('PBS_TOKEN_NAME', 'root@pam!apitoken')
-PBS_TOKEN_SECRET = os.environ.get('PBS215_TOKEN_SECRET', '')
+PBS_TOKEN_SECRET = os.environ.get('PBS_TOKEN_SECRET', '')
 PBS_VERIFY_SSL = os.environ.get('PBS_VERIFY_SSL', 'false').lower() == 'true'
 
 NETBOX_HOST = os.environ.get('NB_API_URL', 'http://localhost:8000')
 NETBOX_TOKEN = os.environ.get('NB_API_TOKEN', '')
 
-PBS_NODE_NAME = os.environ.get('PBS215','pbs215')
+PBS_NODE_NAME = os.environ.get('PBS_NODE_NAME', 'pbs')
 
 # ============================================================================
 # 工具函數
@@ -87,14 +88,13 @@ class PBSToNetBoxSync:
         return obj
 
     def sync(self):
-        print("=" * 60)
-        print(f"啟動 PBS 同步任務: {PBS_NODE_NAME}")
-        
+        logger.info("Starting PBS sync for node: %s", PBS_NODE_NAME)
+
         # 1. 獲取 PBS 數據
         status = self.pbs.get(f"/api2/json/nodes/{PBS_NODE_NAME}/status")
         version_data = self.pbs.get("/api2/json/version") or {}
         if not status:
-            print(f"✗ 錯誤: 無法從 PBS 獲取節點 {PBS_NODE_NAME} 的狀態數據")
+            logger.error("Cannot fetch status for PBS node '%s' — check host/credentials", PBS_NODE_NAME)
             return
 
         pbs_ver = version_data.get('version', '4.x')
@@ -146,25 +146,26 @@ class PBSToNetBoxSync:
         try:
             if device:
                 device.update(device_data)
-                print(f"✓ 已更新設備: {PBS_NODE_NAME}")
+                logger.info("Updated device: %s", PBS_NODE_NAME)
             else:
                 device = self.nb.dcim.devices.create(**device_data)
-                print(f"✓ 已創建新設備: {PBS_NODE_NAME}")
+                logger.info("Created device: %s", PBS_NODE_NAME)
         except Exception as e:
-            # 容錯處理：如果某個 Custom Field 類型不對，嘗試移除 custom_fields 同步
-            print(f"✗ 設備同步出錯: {e}")
-            print("  嘗試跳過自定義欄位同步...")
+            logger.warning("Device sync error (retrying without custom_fields): %s", e)
             device_data.pop('custom_fields')
-            if device: device.update(device_data)
-            else: device = self.nb.dcim.devices.create(**device_data)
+            if device:
+                device.update(device_data)
+            else:
+                device = self.nb.dcim.devices.create(**device_data)
 
         # 4. 同步網路並設置 Primary IP
         self.sync_networking(device)
 
     def sync_networking(self, device):
-        print("正在同步網絡配置...")
+        logger.info("Syncing network config for %s", PBS_NODE_NAME)
         pbs_net = self.pbs.get(f"/api2/json/nodes/{PBS_NODE_NAME}/network")
-        if not pbs_net: return
+        if not pbs_net:
+            return
 
         api_host_ip = PBS_HOST.split('//')[-1].split(':')[0]
         primary_ip_candidate = None
@@ -206,8 +207,9 @@ class PBSToNetBoxSync:
         if primary_ip_candidate:
             device.primary_ip4 = primary_ip_candidate.id
             device.save()
-            print(f"✓ 已設置主 IPv4: {primary_ip_candidate.address}")
+            logger.info("Set primary IPv4: %s", primary_ip_candidate.address)
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     PBSToNetBoxSync().sync()
