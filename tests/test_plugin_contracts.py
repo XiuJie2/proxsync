@@ -74,6 +74,41 @@ def test_model_verbose_names_are_captured_in_migrations() -> None:
         assert verbose_name in latest_migration
 
 
+def test_detail_views_use_existing_template_paths() -> None:
+    views = _read_text("pve_sync_plugin/views.py")
+
+    expected_template_names = (
+        "pve_sync/pvesyncjob.html",
+        "pve_sync/pvewebhookevent.html",
+        "pve_sync/pveclusterconfig.html",
+        "pve_sync/pvebackupstatus.html",
+    )
+
+    for template_name in expected_template_names:
+        assert f'template_name = "{template_name}"' in views
+        assert (PROJECT_ROOT / "pve_sync_plugin" / "templates" / template_name).exists()
+
+
+def test_plugin_menu_items_remain_visible_in_sidebar() -> None:
+    navigation = _read_text("pve_sync_plugin/navigation.py")
+
+    assert "menu = PluginMenu(" in navigation
+    assert "permissions=" not in navigation
+
+
+def test_cluster_templates_use_registered_route_names() -> None:
+    cluster_list = _read_text("pve_sync_plugin/templates/pve_sync/cluster_list.html")
+    cluster_form = _read_text("pve_sync_plugin/templates/pve_sync/cluster_form.html")
+    combined_templates = cluster_list + cluster_form
+
+    assert "cluster-add" not in combined_templates
+    assert "cluster-edit" not in combined_templates
+    assert "cluster-list" not in combined_templates
+    assert "pveclusterconfig_add" in combined_templates
+    assert "pveclusterconfig_edit" in combined_templates
+    assert "pveclusterconfig_list" in combined_templates
+
+
 def test_vm_button_template_tag_uses_registered_ui_route() -> None:
     tags = _read_text("pve_sync_plugin/templatetags/pve_sync_tags.py")
     urls = _read_text("pve_sync_plugin/urls.py")

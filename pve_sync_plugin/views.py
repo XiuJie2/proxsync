@@ -1,14 +1,3 @@
-"""
-PVE Sync Plugin Views
-
-NetBox 4.x class-based views for all plugin pages:
-- Dashboard
-- Model CRUD (list, detail, edit, delete)
-- Manual sync trigger
-- Plugin settings
-- Webhook receiver (function-based, requires @csrf_exempt)
-"""
-
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.http import JsonResponse
@@ -102,6 +91,7 @@ class PveSyncJobListView(generic.ObjectListView):
 
 class PveSyncJobView(generic.ObjectView):
     queryset = PveSyncJob.objects.all()
+    template_name = "pve_sync/pvesyncjob.html"
 
 
 class PveSyncJobDeleteView(generic.ObjectDeleteView):
@@ -126,6 +116,7 @@ class PveWebhookEventListView(generic.ObjectListView):
 
 class PveWebhookEventView(generic.ObjectView):
     queryset = PveWebhookEvent.objects.all()
+    template_name = "pve_sync/pvewebhookevent.html"
 
 
 class PveWebhookEventDeleteView(generic.ObjectDeleteView):
@@ -152,6 +143,7 @@ class PveClusterConfigListView(generic.ObjectListView):
 
 class PveClusterConfigView(generic.ObjectView):
     queryset = PveClusterConfig.objects.all()
+    template_name = "pve_sync/pveclusterconfig.html"
 
 
 class PveClusterConfigEditView(generic.ObjectEditView):
@@ -180,6 +172,7 @@ class PveBackupStatusListView(generic.ObjectListView):
 
 class PveBackupStatusView(generic.ObjectView):
     queryset = PveBackupStatus.objects.all()
+    template_name = "pve_sync/pvebackupstatus.html"
 
 
 # ============================================================================

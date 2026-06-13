@@ -13,7 +13,7 @@
     <a href="{% url 'plugins:pve_sync_plugin:dashboard' %}" class="btn btn-sm btn-outline-secondary">
       <i class="mdi mdi-view-dashboard"></i> Dashboard
     </a>
-    <a href="{% url 'plugins:pve_sync_plugin:cluster-add' %}" class="btn btn-sm btn-primary">
+    <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}" class="btn btn-sm btn-primary">
       <i class="mdi mdi-plus-thick"></i> Add cluster
     </a>
   </div>
@@ -51,7 +51,7 @@
                   <i class="mdi mdi-sync"></i> Sync
                 </button>
               </form>
-              <a href="{% url 'plugins:pve_sync_plugin:cluster-edit' cluster.pk %}" class="btn btn-sm btn-outline-secondary">
+              <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_edit' cluster.pk %}" class="btn btn-sm btn-outline-secondary">
                 <i class="mdi mdi-pencil"></i> Edit
               </a>
             </td>
