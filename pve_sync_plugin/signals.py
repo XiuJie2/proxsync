@@ -5,7 +5,6 @@ PVE Sync Plugin Signals
 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.contrib.contenttypes.models import ContentType
 from .models import PveBackupStatus
 
 

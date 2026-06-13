@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -40,8 +41,13 @@ from .tables import (
     PveSyncJobTable,
     PveWebhookEventTable,
 )
-from .tasks import enqueue_sync, enqueue_webhook_event
+from .tasks import enqueue_webhook_event
 from .utils import get_plugin_config
+from .view_helpers import (
+    create_and_enqueue_sync_job,
+    has_active_sync_job,
+    resolve_cluster_name_for_vm,
+)
 
 
 # ============================================================================
@@ -61,19 +67,21 @@ class DashboardView(PermissionRequiredMixin, View):
         ).count()
         clusters = PveClusterConfig.objects.filter(enabled=True)
 
-        # Stats for dashboard cards
-        total_jobs = PveSyncJob.objects.count()
-        success_jobs = PveSyncJob.objects.filter(status="success").count()
-        failed_jobs = PveSyncJob.objects.filter(status="failed").count()
+        # Aggregate job stats in a single query instead of 3 separate ones
+        job_stats = PveSyncJob.objects.aggregate(
+            total=Count("id"),
+            success=Count("id", filter=Q(status="success")),
+            failed=Count("id", filter=Q(status="failed")),
+        )
 
         context = {
             "recent_jobs": recent_jobs,
             "pending_webhooks": pending_webhooks,
             "backup_alerts": backup_alerts,
             "clusters": clusters,
-            "total_jobs": total_jobs,
-            "success_jobs": success_jobs,
-            "failed_jobs": failed_jobs,
+            "total_jobs": job_stats["total"],
+            "success_jobs": job_stats["success"],
+            "failed_jobs": job_stats["failed"],
         }
         return render(request, "pve_sync/dashboard.html", context)
 
@@ -194,7 +202,7 @@ class PvePluginSettingsView(PermissionRequiredMixin, View):
         form = PvePluginSettingsForm(request.POST, instance=settings_obj)
         if form.is_valid():
             form.save()
-            messages.success(request, "PVE Sync 設定已更新")
+            messages.success(request, "PVE Sync settings updated.")
             return redirect(reverse("plugins:pve_sync_plugin:settings"))
         return render(request, "pve_sync/settings.html", {"form": form})
 
@@ -210,16 +218,25 @@ class TriggerSyncView(PermissionRequiredMixin, View):
 
     def post(self, request):
         cluster_name = request.POST.get("cluster") or "default"
+
+        # Prevent duplicate sync jobs for the same cluster
+        if has_active_sync_job(cluster_name):
+            messages.warning(
+                request,
+                f"Cluster '{cluster_name}' already has an active sync job. Please try again later.",
+            )
+            return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
+
         try:
-            job = _create_and_enqueue_sync_job(cluster_name, request.user, "manual")
-            messages.success(request, f"PVE 同步已排入背景任務，Job #{job.id}")
+            job = create_and_enqueue_sync_job(cluster_name, request.user, "manual")
+            messages.success(request, f"PVE sync queued as background job #{job.id}.")
             return redirect(job.get_absolute_url())
         except Exception as exc:
-            messages.error(request, f"無法啟動同步: {exc}")
+            messages.error(request, f"Unable to start sync: {exc}")
         return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
 
     def get(self, request):
-        messages.info(request, "請從 Dashboard 使用 Sync Now 表單啟動同步。")
+        messages.info(request, "Use Sync Now from the dashboard to start a sync.")
         return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
 
 
@@ -232,10 +249,10 @@ class TriggerVmSyncView(PermissionRequiredMixin, View):
         from virtualization.models import VirtualMachine
 
         vm = get_object_or_404(VirtualMachine, pk=vm_id)
-        cluster_name = _resolve_cluster_name_for_vm(vm)
+        cluster_name = resolve_cluster_name_for_vm(vm)
 
         try:
-            job = _create_and_enqueue_sync_job(
+            job = create_and_enqueue_sync_job(
                 cluster_name,
                 request.user,
                 "manual",
@@ -245,22 +262,22 @@ class TriggerVmSyncView(PermissionRequiredMixin, View):
                     "source": "vm_detail",
                 },
             )
-            messages.success(request, f"{vm.name} 的 PVE 同步已排入背景任務，Job #{job.id}")
+            messages.success(request, f"PVE sync for {vm.name} queued as background job #{job.id}.")
         except Exception as exc:
-            messages.error(request, f"無法啟動 {vm.name} 的同步: {exc}")
+            messages.error(request, f"Unable to start sync for {vm.name}: {exc}")
 
         return redirect(request.POST.get("return_url") or vm.get_absolute_url())
 
 
 # ============================================================================
-# Webhook Receiver (function-based — needs @csrf_exempt)
+# Webhook Receiver (function-based 鈥?needs @csrf_exempt)
 # ============================================================================
 
 @csrf_exempt
 @require_http_methods(["POST"])
 def webhook_receiver(request):
     """
-    接收 PVE Webhook 事件
+    鎺ユ敹 PVE Webhook 浜嬩欢
 
     POST /api/plugins/pve-sync/webhook/
 
@@ -319,34 +336,3 @@ def webhook_receiver(request):
         return JsonResponse(
             {"status": "error", "message": str(e)}, status=500
         )
-
-
-# ============================================================================
-# Helpers
-# ============================================================================
-
-def _create_and_enqueue_sync_job(cluster_name, user, trigger, details=None):
-    if cluster_name != "default":
-        get_object_or_404(PveClusterConfig, name=cluster_name, enabled=True)
-
-    job = PveSyncJob.objects.create(
-        cluster_name=cluster_name,
-        status="pending",
-        trigger=trigger,
-        triggered_by=user if getattr(user, "is_authenticated", False) else None,
-        details=details or {},
-    )
-    enqueue_sync(job)
-    job.refresh_from_db()
-    return job
-
-
-def _resolve_cluster_name_for_vm(vm):
-    if getattr(vm, "cluster_id", None):
-        cluster = PveClusterConfig.objects.filter(
-            netbox_cluster_id=vm.cluster_id,
-            enabled=True,
-        ).first()
-        if cluster:
-            return cluster.name
-    return "default"

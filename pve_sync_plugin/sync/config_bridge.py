@@ -14,6 +14,53 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+# Environment variable keys managed by the config bridge.
+# Used for setup and cleanup to avoid cross-worker pollution.
+_ENV_KEYS = [
+    "PVE_SYNC_CONFIG_FILE",
+    "PVE_API_HOST",
+    "PVE_API_USER",
+    "PVE_API_TOKEN",
+    "PVE_API_SECRET",
+    "PVE_API_VERIFY_SSL",
+    "NB_API_URL",
+    "NB_API_TOKEN",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+]
+
+
+class ConfigValidationError(Exception):
+    """Raised when required configuration values are missing."""
+
+
+def validate_config(config_data):
+    """Validate that required fields are present and non-empty.
+
+    Raises:
+        ConfigValidationError: if critical connection details are missing.
+    """
+    cluster = config_data.get("clusters", [{}])[0]
+    pve = cluster.get("pve", {})
+    netbox = cluster.get("netbox", {})
+
+    missing = []
+    if not pve.get("host"):
+        missing.append("pve.host (PVE API host)")
+    if not pve.get("token"):
+        missing.append("pve.token (PVE API token)")
+    if not pve.get("secret"):
+        missing.append("pve.secret (PVE API secret)")
+    if not netbox.get("url"):
+        missing.append("netbox.url (NetBox API URL)")
+    if not netbox.get("token"):
+        missing.append("netbox.token (NetBox API token)")
+
+    if missing:
+        raise ConfigValidationError(
+            f"Missing required config fields: {', '.join(missing)}"
+        )
+
 
 def build_runtime_config_from_db(cluster_name="default"):
     """Read plugin DB models and produce a config dict compatible with
@@ -130,8 +177,12 @@ def write_runtime_config_file(cluster_name="default"):
 
     Returns:
         str: path to the temporary config file (caller must clean up)
+
+    Raises:
+        ConfigValidationError: if required config values are missing.
     """
     config_data = build_runtime_config_from_db(cluster_name)
+    validate_config(config_data)
 
     config_file = tempfile.NamedTemporaryFile(
         "w", prefix="pve-sync-", suffix=".yaml", delete=False
@@ -162,3 +213,13 @@ def _apply_runtime_env(config_path, config_data):
     os.environ["NB_API_TOKEN"] = str(netbox.get("token", ""))
     os.environ["TELEGRAM_BOT_TOKEN"] = str(telegram.get("bot_token", ""))
     os.environ["TELEGRAM_CHAT_ID"] = str(telegram.get("chat_id", ""))
+
+
+def cleanup_runtime_env():
+    """Remove temporary environment variables set by _apply_runtime_env.
+
+    Must be called in a finally block after sync completes to prevent
+    env var pollution across RQ worker invocations.
+    """
+    for key in _ENV_KEYS:
+        os.environ.pop(key, None)

@@ -1,5 +1,6 @@
 """Background tasks for NetBox's RQ worker."""
 
+import datetime
 import logging
 import os
 
@@ -9,6 +10,9 @@ from .models import PveClusterConfig, PveSyncJob, PveWebhookEvent
 from .utils import get_plugin_config
 
 logger = logging.getLogger(__name__)
+
+# Maximum allowed runtime before a sync job is considered stale.
+_JOB_TIMEOUT_MINUTES = 30
 
 
 def enqueue_sync(job):
@@ -49,7 +53,7 @@ def run_sync_job(job_id):
     config_path = None
 
     try:
-        from .sync.config_bridge import write_runtime_config_file
+        from .sync.config_bridge import cleanup_runtime_env, write_runtime_config_file
         from .sync.engine import PVESyncEngine
 
         config_path = write_runtime_config_file(job.cluster_name)
@@ -82,11 +86,20 @@ def run_sync_job(job_id):
         return {"status": "failed", "job_id": job.id, "error": str(exc)}
 
     finally:
+        # Clean up temporary config file
         if config_path:
             try:
                 os.unlink(config_path)
             except OSError:
                 pass
+
+        # Clean up env vars to prevent pollution across worker tasks
+        try:
+            from .sync.config_bridge import cleanup_runtime_env
+
+            cleanup_runtime_env()
+        except ImportError:
+            pass
 
 
 def process_webhook_event(event_id):
@@ -120,6 +133,26 @@ def process_webhook_event(event_id):
         "event_id": event.id,
         "sync_triggered": should_sync,
     }
+
+
+def cleanup_stale_jobs():
+    """Mark jobs stuck in 'pending' or 'running' for too long as failed.
+
+    This is intended to be called periodically (e.g. from a management
+    command or housekeeping cron) to prevent orphaned jobs.
+    """
+    cutoff = timezone.now() - datetime.timedelta(minutes=_JOB_TIMEOUT_MINUTES)
+    stale_jobs = PveSyncJob.objects.filter(
+        status__in=["pending", "running"],
+        start_time__lt=cutoff,
+    )
+    count = stale_jobs.update(
+        status="failed",
+        end_time=timezone.now(),
+    )
+    if count:
+        logger.warning("Marked %d stale sync jobs as failed", count)
+    return count
 
 
 def _update_cluster_status(job):

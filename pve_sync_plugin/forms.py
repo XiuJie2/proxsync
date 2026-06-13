@@ -64,6 +64,26 @@ class PvePluginSettingsForm(NetBoxModelForm):
             "state_db_path",
             "enable_backup_sync",
         )
+        help_texts = {
+            "pve_api_host": "Proxmox VE API hostname or IP (e.g. pve01.example.com)",
+            "pve_api_user": "PVE API user (e.g. root@pam)",
+            "pve_api_token": "API Token ID (not the secret value)",
+            "pve_api_secret": "API Token Secret",
+            "netbox_url": "NetBox base URL (e.g. https://netbox.example.com)",
+            "netbox_token": "NetBox API token with write permissions",
+            "telegram_bot_token": "Telegram bot token for notifications (optional)",
+            "telegram_chat_id": "Telegram chat/group ID for notifications (optional)",
+            "webhook_secret": "HMAC shared secret for PVE webhook signature verification",
+            "state_db_path": "Path to SQLite state database for incremental sync",
+        }
+
+    def save(self, *args, **kwargs):
+        instance = super().save(*args, **kwargs)
+        # Invalidate cached settings so new values take effect immediately
+        from .utils import clear_plugin_config_cache
+
+        clear_plugin_config_cache()
+        return instance
 
 
 class PveClusterConfigForm(NetBoxModelForm):

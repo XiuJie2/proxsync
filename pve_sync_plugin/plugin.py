@@ -2,15 +2,14 @@
 
 from netbox.plugins import PluginConfig
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 
 class PveSyncPluginConfig(PluginConfig):
-    """PVE Sync 插件配置 — NetBox 4.x compatible."""
 
     name = "pve_sync_plugin"
-    verbose_name = "PVE-NetBox 同步"
-    description = "将 Proxmox VE 环境同步到 NetBox，支持实时 Webhook 和手动触发"
+    verbose_name = "PVE-NetBox Sync"
+    description = "Synchronize Proxmox VE inventory into NetBox with webhook and manual triggers."
     author = "PVE-NetBox Sync Maintainers"
     author_email = ""
     version = __version__
@@ -46,3 +45,4 @@ class PveSyncPluginConfig(PluginConfig):
     def ready(self):
         super().ready()
         import pve_sync_plugin.signals  # noqa: F401
+        from .template_content import template_extensions  # noqa: F401

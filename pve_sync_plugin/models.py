@@ -1,11 +1,4 @@
-"""
-PVE Sync Plugin Models
-数据模型：同步任务、Webhook 事件、备份状态、集群配置、插件设定
-
-All plugin-owned models inherit from NetBoxModel (NetBox 4.x) so they
-participate in change-logging, custom fields, tags, export templates,
-and generic views provided by the core framework.
-"""
+import datetime
 
 from django.db import models
 from django.urls import reverse
@@ -22,13 +15,7 @@ from .choices import (
 )
 
 
-# ---------------------------------------------------------------------------
-# PveSyncJob — one row per sync execution
-# ---------------------------------------------------------------------------
-
 class PveSyncJob(NetBoxModel):
-    """PVE 同步任务记录"""
-
     cluster_name = models.CharField(
         max_length=100,
         default="default",
@@ -42,28 +29,23 @@ class PveSyncJob(NetBoxModel):
     start_time = models.DateTimeField(auto_now_add=True)
     end_time = models.DateTimeField(null=True, blank=True)
 
-    # 统计信息
     total_vms = models.IntegerField(default=0)
     success_vms = models.IntegerField(default=0)
     failed_vms = models.IntegerField(default=0)
 
-    # 检测统计
     nodes_offline = models.IntegerField(default=0)
     config_drifts = models.IntegerField(default=0)
     tag_changes = models.IntegerField(default=0)
     resource_alerts = models.IntegerField(default=0)
 
-    # 详细信息（JSON）
     details = models.JSONField(default=dict, blank=True)
 
-    # 触发方式
     trigger = models.CharField(
         max_length=20,
         choices=SyncJobTriggerChoices,
         default=SyncJobTriggerChoices.TRIGGER_MANUAL,
     )
 
-    # 触发用户
     triggered_by = models.ForeignKey(
         "users.User",
         on_delete=models.SET_NULL,
@@ -89,14 +71,12 @@ class PveSyncJob(NetBoxModel):
 
     @property
     def duration(self):
-        """任务耗时（秒）"""
         if self.end_time and self.start_time:
             return (self.end_time - self.start_time).total_seconds()
         return None
 
     @property
     def success_rate(self):
-        """成功率"""
         if self.total_vms > 0:
             return (self.success_vms / self.total_vms) * 100
         return 0
@@ -113,27 +93,18 @@ class PveSyncJob(NetBoxModel):
         }.get(self.status, "secondary")
 
 
-# ---------------------------------------------------------------------------
-# PveWebhookEvent — incoming webhook events from PVE
-# ---------------------------------------------------------------------------
-
 class PveWebhookEvent(NetBoxModel):
-    """PVE Webhook 事件记录"""
-
     event_type = models.CharField(max_length=50, choices=WebhookEventChoices)
     node = models.CharField(max_length=100, null=True, blank=True)
     vmid = models.IntegerField(null=True, blank=True)
     vm_name = models.CharField(max_length=200, null=True, blank=True)
 
-    # 事件原始数据（JSON）
     raw_data = models.JSONField(default=dict)
 
-    # 处理状态
     processed = models.BooleanField(default=False)
     processed_at = models.DateTimeField(null=True, blank=True)
     processing_error = models.TextField(blank=True)
 
-    # 同步任务关联
     sync_job = models.ForeignKey(
         "PveSyncJob",
         on_delete=models.SET_NULL,
@@ -161,7 +132,6 @@ class PveWebhookEvent(NetBoxModel):
         return reverse("plugins:pve_sync_plugin:pvewebhookevent", args=[self.pk])
 
     def mark_processed(self, sync_job=None, error=None):
-        """标记为已处理"""
         self.processed = True
         self.processed_at = timezone.now()
         if sync_job:
@@ -171,13 +141,7 @@ class PveWebhookEvent(NetBoxModel):
         self.save()
 
 
-# ---------------------------------------------------------------------------
-# PveBackupStatus — per-VM backup tracking
-# ---------------------------------------------------------------------------
-
 class PveBackupStatus(NetBoxModel):
-    """VM 备份状态记录"""
-
     vm = models.OneToOneField(
         "virtualization.VirtualMachine",
         on_delete=models.CASCADE,
@@ -208,7 +172,6 @@ class PveBackupStatus(NetBoxModel):
 
     @property
     def backup_age_days(self):
-        """备份天数"""
         if self.last_backup:
             delta = timezone.now() - self.last_backup
             return delta.days
@@ -216,15 +179,10 @@ class PveBackupStatus(NetBoxModel):
 
     @property
     def is_stale(self):
-        """备份是否过期（>7天）"""
         if not self.last_backup:
             return True
         return self.backup_age_days > 7
 
-
-# ---------------------------------------------------------------------------
-# PvePluginSettings — singleton for plugin-wide defaults
-# ---------------------------------------------------------------------------
 
 class PvePluginSettings(NetBoxModel):
     """Singleton settings editable from the NetBox Web UI."""
@@ -269,30 +227,26 @@ class PvePluginSettings(NetBoxModel):
         self.pk = 1
         return super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        """Prevent deletion of the singleton settings row."""
+        pass
+
     @classmethod
     def load(cls):
         settings, _ = cls.objects.get_or_create(pk=1)
         return settings
 
 
-# ---------------------------------------------------------------------------
-# PveClusterConfig — multi-cluster PVE connection profiles
-# ---------------------------------------------------------------------------
-
 class PveClusterConfig(NetBoxModel):
-    """多集群配置"""
-
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
 
-    # PVE 连接配置
     pve_host = models.CharField(max_length=200)
     pve_user = models.CharField(max_length=100)
     pve_token = models.CharField(max_length=100)
     pve_secret = models.CharField(max_length=200)
     pve_verify_ssl = models.BooleanField(default=False)
 
-    # NetBox 关联
     netbox_site = models.ForeignKey(
         "dcim.Site",
         on_delete=models.SET_NULL,
@@ -314,7 +268,6 @@ class PveClusterConfig(NetBoxModel):
         related_name="pve_sync_config",
     )
 
-    # 同步配置
     enabled = models.BooleanField(default=True)
     sync_schedule = models.CharField(
         max_length=20,
@@ -322,7 +275,6 @@ class PveClusterConfig(NetBoxModel):
         default=SyncScheduleChoices.DISABLED,
     )
 
-    # 统计
     last_sync = models.DateTimeField(null=True, blank=True)
     last_sync_status = models.CharField(max_length=20, blank=True)
 
@@ -339,10 +291,9 @@ class PveClusterConfig(NetBoxModel):
 
     @property
     def is_active(self):
-        """是否启用且最近同步成功"""
         if not self.enabled:
             return False
         if not self.last_sync:
             return False
-        recent = timezone.now() - timezone.timedelta(hours=24)
+        recent = timezone.now() - datetime.timedelta(hours=24)
         return self.last_sync > recent and self.last_sync_status == "success"

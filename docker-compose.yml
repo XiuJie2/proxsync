@@ -1,0 +1,115 @@
+# ---------------------------------------------------------------------------
+# docker-compose.yml - NetBox + PVE Sync Plugin
+#
+# Quick start:
+#   1. Copy .env.example to .env and fill in your values
+#   2. docker compose up -d
+#   3. Access NetBox at http://localhost:8080
+# ---------------------------------------------------------------------------
+
+services:
+  # --- NetBox Web (with plugin) ---
+  netbox:
+    build:
+      context: .
+      args:
+        NETBOX_VERSION: v4.6.2
+    image: netbox-pve-sync:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_NAME: netbox
+      DB_USER: netbox
+      DB_PASSWORD: ${DB_PASSWORD:-netbox}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SECRET_KEY: ${SECRET_KEY:-changeme_in_production}
+      SUPERUSER_NAME: ${SUPERUSER_NAME:-admin}
+      SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@example.com}
+      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:-admin}
+    ports:
+      - "8080:8080"
+    volumes:
+      - netbox-media:/opt/netbox/netbox/media
+      - netbox-reports:/opt/netbox/netbox/reports
+      - netbox-scripts:/opt/netbox/netbox/scripts
+      - ./docker/configuration/plugins.py:/etc/netbox/config/plugins.py:ro
+    restart: unless-stopped
+
+  # --- NetBox RQ Worker (with plugin, required for sync jobs) ---
+  netbox-worker:
+    image: netbox-pve-sync:latest
+    depends_on:
+      netbox:
+        condition: service_started
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_NAME: netbox
+      DB_USER: netbox
+      DB_PASSWORD: ${DB_PASSWORD:-netbox}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SECRET_KEY: ${SECRET_KEY:-changeme_in_production}
+    command: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py rqworker
+    volumes:
+      - netbox-media:/opt/netbox/netbox/media
+      - ./docker/configuration/plugins.py:/etc/netbox/config/plugins.py:ro
+    restart: unless-stopped
+
+  # --- NetBox Housekeeping ---
+  netbox-housekeeping:
+    image: netbox-pve-sync:latest
+    depends_on:
+      netbox:
+        condition: service_started
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_NAME: netbox
+      DB_USER: netbox
+      DB_PASSWORD: ${DB_PASSWORD:-netbox}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SECRET_KEY: ${SECRET_KEY:-changeme_in_production}
+    command: /opt/netbox/housekeeping.sh
+    volumes:
+      - ./docker/configuration/plugins.py:/etc/netbox/config/plugins.py:ro
+    restart: unless-stopped
+
+  # --- PostgreSQL ---
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: netbox
+      POSTGRES_USER: netbox
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-netbox}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netbox"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Redis ---
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  netbox-media:
+  netbox-reports:
+  netbox-scripts:

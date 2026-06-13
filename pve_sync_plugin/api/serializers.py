@@ -89,6 +89,7 @@ class PveClusterConfigSerializer(NetBoxModelSerializer):
             "pve_host",
             "pve_user",
             "pve_token",
+            "pve_secret",
             "pve_verify_ssl",
             "netbox_site",
             "netbox_cluster_type",
@@ -100,9 +101,10 @@ class PveClusterConfigSerializer(NetBoxModelSerializer):
             "created",
             "last_updated",
         ]
-        # Exclude pve_secret from default serialization for security
+        # Never expose credentials in API responses
         extra_kwargs = {
             "pve_token": {"write_only": True},
+            "pve_secret": {"write_only": True},
         }
 
 
