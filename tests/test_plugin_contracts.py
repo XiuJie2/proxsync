@@ -120,8 +120,7 @@ def test_sync_job_detail_surfaces_queue_state() -> None:
 
     assert "window.location.reload()" in template
     assert "object.details.rq_job_id" in template
-    assert "object.details.queue_error" in template
-    assert "object.details.error" in template
+    assert "object.error_message" in template
 
 
 def test_vm_button_template_tag_uses_registered_ui_route() -> None:

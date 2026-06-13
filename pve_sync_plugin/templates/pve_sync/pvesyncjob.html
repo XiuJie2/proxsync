@@ -14,10 +14,10 @@
   </div>
 {% endif %}
 
-{% if object.details.error or object.details.queue_error %}
+{% if object.error_message %}
   <div class="alert alert-danger" role="alert">
     <strong>Sync failed:</strong>
-    {{ object.details.error|default:object.details.queue_error }}
+    {{ object.error_message }}
   </div>
 {% endif %}
 

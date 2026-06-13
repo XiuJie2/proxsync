@@ -92,6 +92,12 @@ class PveSyncJob(NetBoxModel):
             "partial": "warning",
         }.get(self.status, "secondary")
 
+    @property
+    def error_message(self):
+        if not self.details:
+            return ""
+        return self.details.get("error") or self.details.get("queue_error") or ""
+
 
 class PveWebhookEvent(NetBoxModel):
     event_type = models.CharField(max_length=50, choices=WebhookEventChoices)
