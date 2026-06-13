@@ -196,8 +196,6 @@ class PveBackupStatus(NetBoxModel):
 
     pve_backup_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
 
-    updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         verbose_name = "PVE Backup Status"
         verbose_name_plural = "PVE Backup Statuses"
@@ -256,8 +254,6 @@ class PvePluginSettings(NetBoxModel):
         default="/var/lib/netbox/pve-sync-state.db",
     )
     enable_backup_sync = models.BooleanField(default=True)
-
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "PVE Sync Settings"
@@ -329,9 +325,6 @@ class PveClusterConfig(NetBoxModel):
     # 统计
     last_sync = models.DateTimeField(null=True, blank=True)
     last_sync_status = models.CharField(max_length=20, blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["name"]
