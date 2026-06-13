@@ -24,7 +24,7 @@ def pve_sync_button(vm_id=None, cluster='default'):
     from django.contrib.auth.models import User
     
     # 构建 API 触发 URL
-    url = reverse('pve_sync_plugin:api-trigger')
+    url = reverse("plugins:pve_sync_plugin:trigger-sync")
     if vm_id:
         url += f'?vm_id={vm_id}'
     
@@ -62,7 +62,7 @@ def pve_backup_status(vm):
     return '<span class="badge badge-secondary">无备份记录</span>'
 
 
-@register.inclusion_tag('pve_sync/vm_button.html')
+@register.inclusion_tag("pve_sync/inc/vm_sync_button.html")
 def pve_sync_button_inline(vm, cluster='default'):
     """
     在 VM 详情页嵌入同步按钮
@@ -70,8 +70,12 @@ def pve_sync_button_inline(vm, cluster='default'):
     使用示例:
     {% pve_sync_button_inline vm %}
     """
-    api_url = reverse('pve_sync_plugin:api-trigger')
     can_sync = vm is not None
+    api_url = (
+        reverse("plugins:pve_sync_plugin:trigger-vm-sync", args=[vm.pk])
+        if can_sync
+        else ""
+    )
     return {
         'vm': vm,
         'api_url': api_url,

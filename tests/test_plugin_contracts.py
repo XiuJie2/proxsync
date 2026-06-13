@@ -42,6 +42,31 @@ def test_webhook_api_route_matches_documented_public_path() -> None:
     assert "POST /api/plugins/pve-sync/webhook/" in plugin_views
 
 
+def test_ui_model_detail_routes_match_model_absolute_urls() -> None:
+    urls = _read_text("pve_sync_plugin/urls.py")
+    models = _read_text("pve_sync_plugin/models.py")
+
+    expected_route_names = (
+        "pvesyncjob",
+        "pvewebhookevent",
+        "pveclusterconfig",
+        "pvebackupstatus",
+    )
+
+    for route_name in expected_route_names:
+        assert f'name="{route_name}"' in urls
+        assert f"plugins:pve_sync_plugin:{route_name}" in models
+
+
+def test_vm_button_template_tag_uses_registered_ui_route() -> None:
+    tags = _read_text("pve_sync_plugin/templatetags/pve_sync_tags.py")
+    urls = _read_text("pve_sync_plugin/urls.py")
+
+    assert "api-trigger" not in tags
+    assert "pve_sync/inc/vm_sync_button.html" in tags
+    assert 'name="trigger-vm-sync"' in urls
+
+
 def test_tests_do_not_need_project_root_path_mutation() -> None:
     source = _read_text("test_network_sync.py")
 

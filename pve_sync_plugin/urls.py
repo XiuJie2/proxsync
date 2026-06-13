@@ -5,9 +5,7 @@ Routes are mounted by NetBox under /plugins/pve-sync/
 (the base_url from PluginConfig).
 """
 
-from django.urls import include, path
-
-from utilities.urls import get_model_urls
+from django.urls import path
 
 from . import views
 
@@ -30,9 +28,16 @@ urlpatterns = [
 
     # --- PveSyncJob CRUD ---
     path("jobs/", views.PveSyncJobListView.as_view(), name="pvesyncjob_list"),
+    path("jobs/<int:pk>/", views.PveSyncJobView.as_view(), name="pvesyncjob"),
     path(
-        "jobs/<int:pk>/",
-        include(get_model_urls("pve_sync_plugin", "pvesyncjob")),
+        "jobs/<int:pk>/delete/",
+        views.PveSyncJobDeleteView.as_view(),
+        name="pvesyncjob_delete",
+    ),
+    path(
+        "jobs/delete/",
+        views.PveSyncJobBulkDeleteView.as_view(),
+        name="pvesyncjob_bulk_delete",
     ),
 
     # --- PveWebhookEvent CRUD ---
@@ -43,7 +48,18 @@ urlpatterns = [
     ),
     path(
         "events/<int:pk>/",
-        include(get_model_urls("pve_sync_plugin", "pvewebhookevent")),
+        views.PveWebhookEventView.as_view(),
+        name="pvewebhookevent",
+    ),
+    path(
+        "events/<int:pk>/delete/",
+        views.PveWebhookEventDeleteView.as_view(),
+        name="pvewebhookevent_delete",
+    ),
+    path(
+        "events/delete/",
+        views.PveWebhookEventBulkDeleteView.as_view(),
+        name="pvewebhookevent_bulk_delete",
     ),
 
     # --- PveClusterConfig CRUD ---
@@ -59,7 +75,23 @@ urlpatterns = [
     ),
     path(
         "clusters/<int:pk>/",
-        include(get_model_urls("pve_sync_plugin", "pveclusterconfig")),
+        views.PveClusterConfigView.as_view(),
+        name="pveclusterconfig",
+    ),
+    path(
+        "clusters/<int:pk>/edit/",
+        views.PveClusterConfigEditView.as_view(),
+        name="pveclusterconfig_edit",
+    ),
+    path(
+        "clusters/<int:pk>/delete/",
+        views.PveClusterConfigDeleteView.as_view(),
+        name="pveclusterconfig_delete",
+    ),
+    path(
+        "clusters/delete/",
+        views.PveClusterConfigBulkDeleteView.as_view(),
+        name="pveclusterconfig_bulk_delete",
     ),
 
     # --- PveBackupStatus read-only ---
@@ -70,7 +102,8 @@ urlpatterns = [
     ),
     path(
         "backup-status/<int:pk>/",
-        include(get_model_urls("pve_sync_plugin", "pvebackupstatus")),
+        views.PveBackupStatusView.as_view(),
+        name="pvebackupstatus",
     ),
 
     # Webhook receiver (external, no auth, HMAC-verified)
