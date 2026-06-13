@@ -58,6 +58,22 @@ def test_ui_model_detail_routes_match_model_absolute_urls() -> None:
         assert f"plugins:pve_sync_plugin:{route_name}" in models
 
 
+def test_model_verbose_names_are_captured_in_migrations() -> None:
+    latest_migration = _read_text("pve_sync_plugin/migrations/0004_model_verbose_names.py")
+
+    expected_verbose_names = (
+        "PVE Cluster Config",
+        "PVE Cluster Configs",
+        "PVE Sync Job",
+        "PVE Sync Jobs",
+        "PVE Webhook Event",
+        "PVE Webhook Events",
+    )
+
+    for verbose_name in expected_verbose_names:
+        assert verbose_name in latest_migration
+
+
 def test_vm_button_template_tag_uses_registered_ui_route() -> None:
     tags = _read_text("pve_sync_plugin/templatetags/pve_sync_tags.py")
     urls = _read_text("pve_sync_plugin/urls.py")
