@@ -2,6 +2,25 @@
 {% load helpers %}
 
 {% block content %}
+{% if object.status == "pending" or object.status == "running" %}
+  <script>
+    window.setTimeout(function () {
+      window.location.reload();
+    }, 5000);
+  </script>
+  <div class="alert alert-info" role="alert">
+    <i class="mdi mdi-sync mdi-spin"></i>
+    Sync job is {{ object.get_status_display }}. This page refreshes automatically.
+  </div>
+{% endif %}
+
+{% if object.details.error or object.details.queue_error %}
+  <div class="alert alert-danger" role="alert">
+    <strong>Sync failed:</strong>
+    {{ object.details.error|default:object.details.queue_error }}
+  </div>
+{% endif %}
+
 <div class="row">
   <div class="col col-md-6">
     <div class="card">
@@ -34,6 +53,10 @@
         <tr>
           <th scope="row">Duration</th>
           <td>{% if object.duration %}{{ object.duration|floatformat:1 }}s{% else %}—{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">RQ Job ID</th>
+          <td>{{ object.details.rq_job_id|default:"-" }}</td>
         </tr>
       </table>
     </div>

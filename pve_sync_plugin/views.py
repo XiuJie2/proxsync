@@ -213,6 +213,7 @@ class TriggerSyncView(PermissionRequiredMixin, View):
         try:
             job = _create_and_enqueue_sync_job(cluster_name, request.user, "manual")
             messages.success(request, f"PVE 同步已排入背景任務，Job #{job.id}")
+            return redirect(job.get_absolute_url())
         except Exception as exc:
             messages.error(request, f"無法啟動同步: {exc}")
         return redirect(reverse("plugins:pve_sync_plugin:dashboard"))

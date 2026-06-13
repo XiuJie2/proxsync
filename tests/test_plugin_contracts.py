@@ -109,6 +109,21 @@ def test_cluster_templates_use_registered_route_names() -> None:
     assert "pveclusterconfig_list" in combined_templates
 
 
+def test_sync_trigger_redirects_to_created_job_detail() -> None:
+    views = _read_text("pve_sync_plugin/views.py")
+
+    assert "return redirect(job.get_absolute_url())" in views
+
+
+def test_sync_job_detail_surfaces_queue_state() -> None:
+    template = _read_text("pve_sync_plugin/templates/pve_sync/pvesyncjob.html")
+
+    assert "window.location.reload()" in template
+    assert "object.details.rq_job_id" in template
+    assert "object.details.queue_error" in template
+    assert "object.details.error" in template
+
+
 def test_vm_button_template_tag_uses_registered_ui_route() -> None:
     tags = _read_text("pve_sync_plugin/templatetags/pve_sync_tags.py")
     urls = _read_text("pve_sync_plugin/urls.py")
