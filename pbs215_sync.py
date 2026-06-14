@@ -19,15 +19,9 @@ logger = logging.getLogger(__name__)
 # 配置部分
 # ============================================================================
 
-PBS_HOST = os.environ.get('PBS_HOST', 'https://localhost:8007')
-PBS_TOKEN_NAME = os.environ.get('PBS_TOKEN_NAME', 'root@pam!apitoken')
-PBS_TOKEN_SECRET = os.environ.get('PBS_TOKEN_SECRET', '')
-PBS_VERIFY_SSL = os.environ.get('PBS_VERIFY_SSL', 'false').lower() == 'true'
-
-NETBOX_HOST = os.environ.get('NB_API_URL', 'http://localhost:8000')
-NETBOX_TOKEN = os.environ.get('NB_API_TOKEN', '')
-
-PBS_NODE_NAME = os.environ.get('PBS_NODE_NAME', 'pbs')
+def _get_env(key, default=''):
+    """Read env var at call time (not import time) so RQ workers pick up per-job values."""
+    return os.environ.get(key, default)
 
 # ============================================================================
 # 工具函數
@@ -74,9 +68,16 @@ class PBSClient:
 
 class PBSToNetBoxSync:
     def __init__(self):
-        self.nb = pynetbox.api(NETBOX_HOST, NETBOX_TOKEN)
+        pbs_host = _get_env('PBS_HOST', 'https://localhost:8007')
+        pbs_token_name = _get_env('PBS_TOKEN_NAME', 'root@pam!apitoken')
+        pbs_token_secret = _get_env('PBS_TOKEN_SECRET', '')
+        pbs_verify_ssl = _get_env('PBS_VERIFY_SSL', 'false').lower() == 'true'
+        netbox_host = _get_env('NB_API_URL', 'http://localhost:8000')
+        netbox_token = _get_env('NB_API_TOKEN', '')
+
+        self.nb = pynetbox.api(netbox_host, netbox_token)
         self.nb.http_session.verify = False
-        self.pbs = PBSClient(PBS_HOST, PBS_TOKEN_NAME, PBS_TOKEN_SECRET, PBS_VERIFY_SSL)
+        self.pbs = PBSClient(pbs_host, pbs_token_name, pbs_token_secret, pbs_verify_ssl)
 
     def get_or_create_obj(self, endpoint, name, extra_fields=None):
         slug = slugify(name)
@@ -88,13 +89,14 @@ class PBSToNetBoxSync:
         return obj
 
     def sync(self):
-        logger.info("Starting PBS sync for node: %s", PBS_NODE_NAME)
+        node_name = _get_env('PBS_NODE_NAME', 'pbs')
+        logger.info("Starting PBS sync for node: %s", node_name)
 
         # 1. 獲取 PBS 數據
-        status = self.pbs.get(f"/api2/json/nodes/{PBS_NODE_NAME}/status")
+        status = self.pbs.get(f"/api2/json/nodes/{node_name}/status")
         version_data = self.pbs.get("/api2/json/version") or {}
         if not status:
-            logger.error("Cannot fetch status for PBS node '%s' — check host/credentials", PBS_NODE_NAME)
+            logger.error("Cannot fetch status for PBS node '%s' — check host/credentials", node_name)
             return
 
         pbs_ver = version_data.get('version', '4.x')
@@ -127,7 +129,7 @@ class PBSToNetBoxSync:
         )
 
         device_data = {
-            'name': PBS_NODE_NAME,
+            'name': node_name,
             'device_type': dt.id,
             'role': role.id,
             'site': site.id,
@@ -135,21 +137,21 @@ class PBSToNetBoxSync:
             'status': 'active',
             'comments': comments,
             'custom_fields': {
-                'host_cpu_cores': cpu_cores,  # 確保為 int
-                'host_memory': mem_total,      # 假設此欄位為 Text
-                'host_disk_size': disk_total,  # 假設此欄位為 Text
-                'host_disk_free': disk_free    # 假設此欄位為 Text
+                'host_cpu_cores': cpu_cores,
+                'host_memory': mem_total,
+                'host_disk_size': disk_total,
+                'host_disk_free': disk_free,
             }
         }
 
-        device = self.nb.dcim.devices.get(name=PBS_NODE_NAME)
+        device = self.nb.dcim.devices.get(name=node_name)
         try:
             if device:
                 device.update(device_data)
-                logger.info("Updated device: %s", PBS_NODE_NAME)
+                logger.info("Updated device: %s", node_name)
             else:
                 device = self.nb.dcim.devices.create(**device_data)
-                logger.info("Created device: %s", PBS_NODE_NAME)
+                logger.info("Created device: %s", node_name)
         except Exception as e:
             logger.warning("Device sync error (retrying without custom_fields): %s", e)
             device_data.pop('custom_fields')
@@ -159,15 +161,17 @@ class PBSToNetBoxSync:
                 device = self.nb.dcim.devices.create(**device_data)
 
         # 4. 同步網路並設置 Primary IP
-        self.sync_networking(device)
+        self.sync_networking(device, node_name)
 
-    def sync_networking(self, device):
-        logger.info("Syncing network config for %s", PBS_NODE_NAME)
-        pbs_net = self.pbs.get(f"/api2/json/nodes/{PBS_NODE_NAME}/network")
+    def sync_networking(self, device, node_name=None):
+        if node_name is None:
+            node_name = _get_env('PBS_NODE_NAME', 'pbs')
+        logger.info("Syncing network config for %s", node_name)
+        pbs_net = self.pbs.get(f"/api2/json/nodes/{node_name}/network")
         if not pbs_net:
             return
 
-        api_host_ip = PBS_HOST.split('//')[-1].split(':')[0]
+        api_host_ip = _get_env('PBS_HOST', '').split('//')[-1].split(':')[0]
         primary_ip_candidate = None
 
         for item in pbs_net:

@@ -186,7 +186,14 @@ class PbsServerConfigForm(NetBoxModelForm):
             "pbs_node_name",
             "netbox_site",
             "enabled",
+            "sync_schedule",
         )
+        help_texts = {
+            "sync_schedule": (
+                "For reference only. Use a crontab or systemd timer to run "
+                "PBS sync at the desired interval."
+            ),
+        }
 
 
 class PbsServerConfigFilterForm(NetBoxModelFilterSetForm):

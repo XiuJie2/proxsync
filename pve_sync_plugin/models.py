@@ -326,6 +326,11 @@ class PbsServerConfig(NetBoxModel):
         related_name="pbs_servers",
     )
     enabled = models.BooleanField(default=True)
+    sync_schedule = models.CharField(
+        max_length=20,
+        choices=SyncScheduleChoices,
+        default=SyncScheduleChoices.DISABLED,
+    )
     last_sync = models.DateTimeField(null=True, blank=True)
     last_sync_status = models.CharField(max_length=20, blank=True)
 
@@ -339,3 +344,12 @@ class PbsServerConfig(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:pve_sync_plugin:pbsserverconfig", args=[self.pk])
+
+    @property
+    def display_host(self):
+        """Return just the hostname/IP without scheme or port."""
+        host = self.pbs_host
+        if '://' in host:
+            host = host.split('://', 1)[1]
+        host = host.split(':')[0]
+        return host

@@ -81,6 +81,7 @@
               <th>Schedule</th>
               <th>Last Sync</th>
               <th>Status</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -117,6 +118,15 @@
                   <span class="badge text-bg-info">New</span>
                 {% endif %}
               </td>
+              <td>
+                <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="cluster" value="{{ c.name }}">
+                  <button type="submit" class="btn btn-xs btn-outline-success" title="Sync now">
+                    <i class="mdi mdi-sync"></i>
+                  </button>
+                </form>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -143,6 +153,7 @@
             <tr>
               <th>Name</th>
               <th>Host</th>
+              <th>Schedule</th>
               <th>Last Sync</th>
               <th>Status</th>
               <th></th>
@@ -152,7 +163,24 @@
             {% for pbs in pbs_servers %}
             <tr>
               <td><a href="{{ pbs.get_absolute_url }}">{{ pbs.name }}</a></td>
-              <td>{{ pbs.pbs_host }}</td>
+              <td>{{ pbs.display_host }}</td>
+              <td>
+                <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_edit' pbs.pk %}" title="Edit schedule">
+                  {% if pbs.sync_schedule == 'disabled' or not pbs.sync_schedule %}
+                    <span class="text-muted">—</span>
+                  {% elif pbs.sync_schedule == 'hourly' %}
+                    <span class="badge text-bg-info">Hourly</span>
+                  {% elif pbs.sync_schedule == 'every_6h' %}
+                    <span class="badge text-bg-info">Every 6h</span>
+                  {% elif pbs.sync_schedule == 'daily' %}
+                    <span class="badge text-bg-secondary">Daily</span>
+                  {% elif pbs.sync_schedule == 'weekly' %}
+                    <span class="badge text-bg-secondary">Weekly</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">{{ pbs.get_sync_schedule_display }}</span>
+                  {% endif %}
+                </a>
+              </td>
               <td>{% if pbs.last_sync %}{{ pbs.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
               <td>
                 {% if pbs.last_sync_status == 'success' %}
