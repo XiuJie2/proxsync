@@ -39,6 +39,7 @@ class BackupStatusChoices(models.TextChoices):
 class SyncScheduleChoices(models.TextChoices):
     DISABLED = "disabled", "Disabled"
     HOURLY = "hourly", "Hourly"
+    EVERY_3H = "every_3h", "Every 3 hours"
     EVERY_6H = "every_6h", "Every 6 hours"
     DAILY = "daily", "Daily"
     WEEKLY = "weekly", "Weekly"

@@ -2,22 +2,74 @@
 {% load helpers %}
 
 {% block content %}
-{% if object.status == "pending" or object.status == "running" %}
+{% if object.status == "running" or object.status == "pending" %}
   <script>
-    window.setTimeout(function () {
-      window.location.reload();
-    }, 5000);
+    // Auto-refresh every 10 seconds while running
+    window.setTimeout(function () { window.location.reload(); }, 10000);
+
+    // Live elapsed-time counter
+    (function () {
+      var startMs = {{ object.start_time.timestamp|floatformat:0 }} * 1000;
+      function fmt(s) {
+        var m = Math.floor(s / 60), sec = s % 60;
+        return (m > 0 ? m + 'm ' : '') + sec + 's';
+      }
+      function tick() {
+        var el = document.getElementById('elapsed-live');
+        if (el) el.textContent = fmt(Math.floor((Date.now() - startMs) / 1000));
+      }
+      tick();
+      setInterval(tick, 1000);
+    })();
   </script>
-  <div class="alert alert-info" role="alert">
-    <i class="mdi mdi-sync mdi-spin"></i>
-    Sync job is {{ object.get_status_display }}. This page refreshes automatically.
+
+  <div class="alert alert-primary" role="alert">
+    <div class="d-flex align-items-center gap-3">
+      <div class="spinner-border spinner-border-sm text-primary flex-shrink-0" role="status"></div>
+      <div class="flex-grow-1">
+        <strong>同步進行中</strong> —
+        已執行 <span id="elapsed-live">...</span>
+        {% if object.details.heartbeat %}
+          &nbsp;·&nbsp; <span class="text-success">Worker 活躍中</span>
+          <small class="text-muted">(最後心跳: {{ object.details.heartbeat|slice:":19" }})</small>
+        {% else %}
+          &nbsp;·&nbsp; <span class="text-warning">等待 Worker 回應...</span>
+        {% endif %}
+      </div>
+      <small class="text-muted flex-shrink-0">每 10 秒自動更新</small>
+    </div>
+
+    {% if object.status == "running" %}
+    <div class="mt-2">
+      <div class="progress" style="height: 6px;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+             role="progressbar" style="width: 100%"></div>
+      </div>
+    </div>
+
+    <div class="mt-2 small text-muted">
+      {% if object.details.heartbeat %}
+        同步引擎正在處理 VM，完成後頁面將自動顯示統計結果。
+        預計總耗時 8–15 分鐘（取決於 VM 數量）。
+      {% else %}
+        任務已排隊，等待 Worker 開始處理...
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 {% endif %}
 
 {% if object.error_message %}
   <div class="alert alert-danger" role="alert">
-    <strong>Sync failed:</strong>
-    {{ object.error_message }}
+    <strong>同步失敗：</strong> {{ object.error_message }}
+  </div>
+{% endif %}
+
+{% if object.status == "success" %}
+  <div class="alert alert-success" role="alert">
+    <i class="mdi mdi-check-circle"></i>
+    同步成功完成！共處理 <strong>{{ object.total_vms }}</strong> 台 VM，
+    成功 <strong>{{ object.success_vms }}</strong> 台，耗時 {{ object.duration|floatformat:0 }} 秒。
   </div>
 {% endif %}
 
@@ -44,19 +96,33 @@
         </tr>
         <tr>
           <th scope="row">Started</th>
-        <td>{{ object.start_time|date:"Y-m-d H:i" }}</td>
+          <td>{{ object.start_time|date:"Y-m-d H:i" }}</td>
         </tr>
         <tr>
           <th scope="row">Finished</th>
-        <td>{% if object.end_time %}{{ object.end_time|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
+          <td>{% if object.end_time %}{{ object.end_time|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
         </tr>
         <tr>
           <th scope="row">Duration</th>
-          <td>{% if object.duration %}{{ object.duration|floatformat:1 }}s{% else %}—{% endif %}</td>
+          <td>
+            {% if object.duration %}
+              {{ object.duration|floatformat:0 }}s
+            {% elif object.status == "running" %}
+              <span id="elapsed-live-2">計算中...</span>
+              <script>
+                (function(){
+                  var s={{ object.start_time.timestamp|floatformat:0 }}*1000;
+                  function f(sec){var m=Math.floor(sec/60);return (m>0?m+'m ':'')+sec%60+'s';}
+                  function t(){var el=document.getElementById('elapsed-live-2');if(el)el.textContent=f(Math.floor((Date.now()-s)/1000));}
+                  t();setInterval(t,1000);
+                })();
+              </script>
+            {% else %}—{% endif %}
+          </td>
         </tr>
         <tr>
           <th scope="row">RQ Job ID</th>
-          <td>{{ object.details.rq_job_id|default:"-" }}</td>
+          <td><small>{{ object.details.rq_job_id|default:"-" }}</small></td>
         </tr>
       </table>
     </div>
@@ -67,7 +133,15 @@
       <table class="table table-hover attr-table">
         <tr>
           <th scope="row">Total VMs</th>
-          <td>{{ object.total_vms }}</td>
+          <td>
+            {% if object.total_vms > 0 %}
+              {{ object.total_vms }}
+            {% elif object.status == "running" %}
+              <span class="text-muted">同步完成後顯示</span>
+            {% else %}
+              0
+            {% endif %}
+          </td>
         </tr>
         <tr>
           <th scope="row">Success</th>
@@ -79,7 +153,13 @@
         </tr>
         <tr>
           <th scope="row">Success Rate</th>
-          <td>{{ object.success_rate|floatformat:1 }}%</td>
+          <td>
+            {% if object.total_vms > 0 %}
+              {{ object.success_rate|floatformat:1 }}%
+            {% else %}
+              —
+            {% endif %}
+          </td>
         </tr>
         <tr>
           <th scope="row">Nodes Offline</th>

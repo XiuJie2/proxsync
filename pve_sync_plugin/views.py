@@ -10,6 +10,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from netbox.views import generic
+from dcim.models import Device
+from virtualization.models import VirtualMachine
 
 import json
 import hmac
@@ -67,34 +69,74 @@ class DashboardView(PermissionRequiredMixin, View):
     permission_required = "pve_sync_plugin.view_pvesyncjob"
 
     def get(self, request):
-        recent_jobs = PveSyncJob.objects.all()[:20]
+        clusters = PveClusterConfig.objects.filter(enabled=True).select_related("netbox_cluster", "netbox_site")
+        pbs_servers = PbsServerConfig.objects.filter(enabled=True).select_related("netbox_site")
+
+        # Collect all NetBox cluster IDs linked to enabled PVE configs
+        nb_cluster_ids = [c.netbox_cluster_id for c in clusters if c.netbox_cluster_id]
+
+        # Node stats (devices inside PVE clusters)
+        node_qs = Device.objects.filter(cluster__id__in=nb_cluster_ids) if nb_cluster_ids else Device.objects.none()
+        total_nodes = node_qs.count()
+        online_nodes = node_qs.filter(status='active').count()
+        offline_nodes = total_nodes - online_nodes
+
+        # VM stats across all PVE clusters
+        vm_qs = VirtualMachine.objects.filter(cluster__id__in=nb_cluster_ids) if nb_cluster_ids else VirtualMachine.objects.none()
+        vm_stats = vm_qs.aggregate(
+            total=Count("id"),
+            running=Count("id", filter=Q(status="active")),
+            stopped=Count("id", filter=Q(status="offline")),
+            staged=Count("id", filter=Q(status="staged")),
+        )
+
+        # Per-cluster node & VM counts for the clusters table
+        cluster_stats = {}
+        if nb_cluster_ids:
+            for row in Device.objects.filter(cluster__id__in=nb_cluster_ids).values("cluster_id").annotate(
+                total=Count("id"), online=Count("id", filter=Q(status="active"))
+            ):
+                cluster_stats[row["cluster_id"]] = {"nodes": row["total"], "nodes_online": row["online"]}
+            for row in VirtualMachine.objects.filter(cluster__id__in=nb_cluster_ids).values("cluster_id").annotate(
+                total=Count("id"), running=Count("id", filter=Q(status="active"))
+            ):
+                cid = row["cluster_id"]
+                cluster_stats.setdefault(cid, {})
+                cluster_stats[cid]["vms"] = row["total"]
+                cluster_stats[cid]["vms_running"] = row["running"]
+
+        # Attach stats to each cluster object for easy template access
+        for c in clusters:
+            s = cluster_stats.get(c.netbox_cluster_id, {})
+            c.stat_nodes = s.get("nodes", 0)
+            c.stat_nodes_online = s.get("nodes_online", 0)
+            c.stat_vms = s.get("vms", 0)
+            c.stat_vms_running = s.get("vms_running", 0)
+
+        # Alerts
         pending_webhooks = PveWebhookEvent.objects.filter(processed=False).count()
         backup_alerts = PveBackupStatus.objects.filter(
             last_backup__lt=timezone.now() - timezone.timedelta(days=7)
         ).count()
-        clusters = PveClusterConfig.objects.filter(enabled=True)
-        pbs_servers = PbsServerConfig.objects.filter(enabled=True).select_related("netbox_site")
 
-        # Aggregate job stats in a single query instead of 3 separate ones
-        job_stats = PveSyncJob.objects.aggregate(
-            total=Count("id"),
-            success=Count("id", filter=Q(status="success")),
-            failed=Count("id", filter=Q(status="failed")),
-        )
+        # Recent jobs (last 10 only — full history has its own list page)
+        recent_jobs = PveSyncJob.objects.order_by("-start_time")[:10]
 
-        webhook_url = request.build_absolute_uri(
-            reverse("plugins:pve_sync_plugin:webhook")
-        )
+        webhook_url = request.build_absolute_uri(reverse("plugins:pve_sync_plugin:webhook"))
 
         context = {
-            "recent_jobs": recent_jobs,
-            "pending_webhooks": pending_webhooks,
-            "backup_alerts": backup_alerts,
             "clusters": clusters,
             "pbs_servers": pbs_servers,
-            "total_jobs": job_stats["total"],
-            "success_jobs": job_stats["success"],
-            "failed_jobs": job_stats["failed"],
+            "total_nodes": total_nodes,
+            "online_nodes": online_nodes,
+            "offline_nodes": offline_nodes,
+            "total_vms": vm_stats["total"],
+            "running_vms": vm_stats["running"],
+            "stopped_vms": vm_stats["stopped"],
+            "staged_vms": vm_stats["staged"],
+            "pending_webhooks": pending_webhooks,
+            "backup_alerts": backup_alerts,
+            "recent_jobs": recent_jobs,
             "webhook_url": webhook_url,
         }
         return render(request, "pve_sync/dashboard.html", context)

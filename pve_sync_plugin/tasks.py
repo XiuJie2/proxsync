@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 # Maximum allowed runtime before a sync job is considered stale.
 _JOB_TIMEOUT_MINUTES = 30
+# RQ job timeout — must exceed the longest expected sync run.
+_RQ_JOB_TIMEOUT = _JOB_TIMEOUT_MINUTES * 60  # 1800 seconds
 
 
 def enqueue_sync(job):
@@ -22,7 +24,9 @@ def enqueue_sync(job):
     try:
         import django_rq
 
-        rq_job = django_rq.get_queue("default").enqueue(run_sync_job, job.id)
+        rq_job = django_rq.get_queue("default").enqueue(
+            run_sync_job, job.id, job_timeout=_RQ_JOB_TIMEOUT
+        )
         job.details["rq_job_id"] = rq_job.id
         job.save(update_fields=["details"])
         return rq_job.id
@@ -47,12 +51,34 @@ def enqueue_webhook_event(event):
         raise
 
 
+def _heartbeat_thread(job_id, stop_event):
+    """Write a heartbeat to job.details every 30 s so the UI knows the worker is alive."""
+    import threading
+    from django.db import connection
+
+    while not stop_event.wait(30):
+        try:
+            connection.close()  # Each iteration needs a fresh DB connection in this thread
+            job = PveSyncJob.objects.get(pk=job_id)
+            details = dict(job.details or {})
+            details["heartbeat"] = timezone.now().isoformat()
+            PveSyncJob.objects.filter(pk=job_id).update(details=details)
+        except Exception:
+            pass
+
+
 def run_sync_job(job_id):
     """Run a PVE sync from a PveSyncJob record."""
+    import threading
+
     job = PveSyncJob.objects.get(pk=job_id)
     job.status = "running"
     job.save(update_fields=["status"])
     config_path = None
+
+    stop_hb = threading.Event()
+    hb = threading.Thread(target=_heartbeat_thread, args=(job_id, stop_hb), daemon=True)
+    hb.start()
 
     try:
         from .sync.config_bridge import cleanup_runtime_env, write_runtime_config_file
@@ -63,6 +89,7 @@ def run_sync_job(job_id):
         engine = PVESyncEngine(config_path=config_path)
         stats = engine.run()
 
+        job.refresh_from_db()
         job.status = "success"
         job.end_time = timezone.now()
         job.total_vms = stats.get("total_vms", 0)
@@ -72,6 +99,7 @@ def run_sync_job(job_id):
         job.config_drifts = stats.get("config_drifts_detected", 0)
         job.tag_changes = stats.get("tag_changes", 0)
         job.resource_alerts = stats.get("resources_alert", 0)
+        job.details.pop("heartbeat", None)
         job.save()
 
         _update_cluster_status(job)
@@ -80,22 +108,24 @@ def run_sync_job(job_id):
 
     except Exception as exc:
         logger.exception("PVE sync job %s failed", job.id)
+        job.refresh_from_db()
         job.status = "failed"
         job.end_time = timezone.now()
         job.details["error"] = str(exc)
+        job.details.pop("heartbeat", None)
         job.save(update_fields=["status", "end_time", "details"])
         _update_cluster_status(job)
         return {"status": "failed", "job_id": job.id, "error": str(exc)}
 
     finally:
-        # Clean up temporary config file
+        stop_hb.set()
+
         if config_path:
             try:
                 os.unlink(config_path)
             except OSError:
                 pass
 
-        # Clean up env vars to prevent pollution across worker tasks
         try:
             from .sync.config_bridge import cleanup_runtime_env
 
@@ -176,7 +206,7 @@ def enqueue_pbs_sync(job, pbs_server):
         import django_rq
 
         rq_job = django_rq.get_queue("default").enqueue(
-            run_pbs_sync_job, job.id, pbs_server.pk
+            run_pbs_sync_job, job.id, pbs_server.pk, job_timeout=_RQ_JOB_TIMEOUT
         )
         job.details["rq_job_id"] = rq_job.id
         job.save(update_fields=["details"])
@@ -191,12 +221,17 @@ def enqueue_pbs_sync(job, pbs_server):
 
 def run_pbs_sync_job(job_id, pbs_server_pk):
     """Run a PBS sync from a PbsServerConfig record."""
+    import threading
     from .models import PbsServerConfig
 
     job = PveSyncJob.objects.get(pk=job_id)
     pbs = PbsServerConfig.objects.get(pk=pbs_server_pk)
     job.status = "running"
     job.save(update_fields=["status"])
+
+    stop_hb = threading.Event()
+    hb = threading.Thread(target=_heartbeat_thread, args=(job_id, stop_hb), daemon=True)
+    hb.start()
 
     try:
         import os
@@ -225,8 +260,10 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
         except Exception as exc:
             logger.warning("PBS backup status sync failed (non-fatal): %s", exc)
 
+        job.refresh_from_db()
         job.status = "success"
         job.end_time = timezone.now()
+        job.details.pop("heartbeat", None)
         job.save()
 
         pbs.last_sync = job.end_time
@@ -238,9 +275,11 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
 
     except Exception as exc:
         logger.exception("PBS sync job %s failed for server %s", job.id, pbs.name)
+        job.refresh_from_db()
         job.status = "failed"
         job.end_time = timezone.now()
         job.details["error"] = str(exc)
+        job.details.pop("heartbeat", None)
         job.save(update_fields=["status", "end_time", "details"])
 
         pbs.last_sync = job.end_time
@@ -250,6 +289,7 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
         return {"status": "failed", "job_id": job.id, "error": str(exc)}
 
     finally:
+        stop_hb.set()
         # Clean up PBS-specific env vars
         for key in ["PBS_HOST", "PBS_TOKEN_NAME", "PBS_TOKEN_SECRET",
                     "PBS_VERIFY_SSL", "PBS_NODE_NAME"]:
@@ -367,7 +407,7 @@ def _apply_pbs_backup_status(backup_records):
         if vm is None:
             try:
                 vm = VirtualMachine.objects.filter(
-                    custom_field_data__pve_vmid=int(vmid)
+                    custom_field_data__vm_id=int(vmid)
                 ).first()
             except Exception:
                 pass

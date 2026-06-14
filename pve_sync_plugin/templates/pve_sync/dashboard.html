@@ -5,12 +5,12 @@
 {% block title %}Proxmox Sync Dashboard{% endblock %}
 
 {% block content %}
-<div class="row mb-3">
-  <div class="col col-md-8">
-    <h1><i class="mdi mdi-hexagon-multiple text-primary"></i> Proxmox Sync Dashboard</h1>
-    <div class="text-muted">Proxmox VE &amp; PBS to NetBox synchronization overview</div>
+<div class="row mb-3 align-items-center">
+  <div class="col">
+    <h1 class="mb-0"><i class="mdi mdi-hexagon-multiple text-primary"></i> Proxmox Sync Dashboard</h1>
+    <div class="text-muted small">Proxmox VE &amp; PBS → NetBox synchronization overview</div>
   </div>
-  <div class="col col-md-4 text-end">
+  <div class="col-auto">
     <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline-flex gap-2">
       {% csrf_token %}
       <select name="cluster" class="form-select form-select-sm" style="width: auto;">
@@ -25,104 +25,177 @@
   </div>
 </div>
 
-{# Summary cards #}
-<div class="row mb-4">
-  <div class="col-md-3">
-    <div class="card shadow-sm">
-      <div class="card-body text-center">
-        <div class="display-6 text-primary">{{ total_jobs|default:"0" }}</div>
-        <div class="text-muted">Total Jobs</div>
+{# ── Infrastructure Summary ── #}
+<div class="row g-3 mb-4">
+
+  {# Nodes card #}
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <i class="mdi mdi-server fs-4 text-primary me-2"></i>
+          <span class="text-muted small fw-semibold text-uppercase">PVE 節點</span>
+        </div>
+        <div class="d-flex align-items-end gap-2">
+          <span class="display-6 fw-bold lh-1">{{ total_nodes }}</span>
+          <span class="text-muted mb-1">台</span>
+        </div>
+        <div class="mt-2 small">
+          <span class="text-success"><i class="mdi mdi-circle-medium"></i> 上線 {{ online_nodes }}</span>
+          {% if offline_nodes > 0 %}
+            <span class="text-danger ms-2"><i class="mdi mdi-circle-medium"></i> 離線 {{ offline_nodes }}</span>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card shadow-sm">
-      <div class="card-body text-center">
-        <div class="display-6 text-success">{{ success_jobs|default:"0" }}</div>
-        <div class="text-muted">Successful</div>
+
+  {# Total VMs card #}
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <i class="mdi mdi-monitor-multiple fs-4 text-info me-2"></i>
+          <span class="text-muted small fw-semibold text-uppercase">虛擬機總數</span>
+        </div>
+        <div class="d-flex align-items-end gap-2">
+          <span class="display-6 fw-bold lh-1">{{ total_vms }}</span>
+          <span class="text-muted mb-1">台</span>
+        </div>
+        <div class="mt-2 small">
+          {% if staged_vms > 0 %}
+            <span class="text-secondary"><i class="mdi mdi-circle-medium"></i> 範本 {{ staged_vms }}</span>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card shadow-sm">
-      <div class="card-body text-center">
-        <div class="display-6 text-danger">{{ failed_jobs|default:"0" }}</div>
-        <div class="text-muted">Failed</div>
+
+  {# Running VMs card #}
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <i class="mdi mdi-play-circle fs-4 text-success me-2"></i>
+          <span class="text-muted small fw-semibold text-uppercase">運行中</span>
+        </div>
+        <div class="d-flex align-items-end gap-2">
+          <span class="display-6 fw-bold lh-1 text-success">{{ running_vms }}</span>
+          <span class="text-muted mb-1">台</span>
+        </div>
+        <div class="mt-2 small">
+          {% if total_vms > 0 %}
+            <div class="progress" style="height:4px;">
+              <div class="progress-bar bg-success" style="width:{% widthratio running_vms total_vms 100 %}%"></div>
+            </div>
+            <span class="text-muted">{{ running_vms|floatformat:0 }} / {{ total_vms }} ({% widthratio running_vms total_vms 100 %}%)</span>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card shadow-sm">
-      <div class="card-body text-center">
-        <div class="display-6 text-warning">{{ pending_webhooks|default:"0" }}</div>
-        <div class="text-muted">Pending Webhooks</div>
+
+  {# Stopped VMs card #}
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <i class="mdi mdi-stop-circle fs-4 text-secondary me-2"></i>
+          <span class="text-muted small fw-semibold text-uppercase">已關機</span>
+        </div>
+        <div class="d-flex align-items-end gap-2">
+          <span class="display-6 fw-bold lh-1">{{ stopped_vms }}</span>
+          <span class="text-muted mb-1">台</span>
+        </div>
+        <div class="mt-2 small">
+          {% if backup_alerts > 0 %}
+            <span class="text-warning"><i class="mdi mdi-backup-restore"></i> {{ backup_alerts }} 台備份逾期</span>
+          {% else %}
+            <span class="text-success"><i class="mdi mdi-check-circle"></i> 備份狀態正常</span>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>
+
 </div>
 
-{# Clusters row #}
-<div class="row mb-4">
-  <div class="col-md-6">
-    <div class="card shadow-sm">
-      <h5 class="card-header bg-transparent">
-        <i class="mdi mdi-server"></i> PVE Clusters
-        <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}" class="float-end btn btn-sm btn-outline-success">
-          <i class="mdi mdi-plus-thick"></i> Add
+{# ── PVE Clusters + PBS Servers ── #}
+<div class="row g-3 mb-4">
+
+  <div class="col-lg-7">
+    <div class="card shadow-sm h-100">
+      <h5 class="card-header bg-transparent d-flex align-items-center">
+        <i class="mdi mdi-server-network me-2"></i> PVE 叢集
+        <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}" class="ms-auto btn btn-sm btn-outline-success">
+          <i class="mdi mdi-plus-thick"></i> 新增
         </a>
       </h5>
       <div class="card-body p-0">
         {% if clusters %}
-        <table class="table table-sm table-hover mb-0">
-          <thead>
+        <table class="table table-sm table-hover mb-0 align-middle">
+          <thead class="table-light">
             <tr>
-              <th>Name</th>
-              <th>Host</th>
-              <th>Schedule</th>
-              <th>Last Sync</th>
-              <th>Status</th>
+              <th>叢集名稱</th>
+              <th class="text-center">節點</th>
+              <th class="text-center">VM</th>
+              <th>排程</th>
+              <th>上次同步</th>
+              <th>狀態</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {% for c in clusters %}
             <tr>
-              <td><a href="{{ c.get_absolute_url }}">{{ c.name }}</a></td>
-              <td>{{ c.pve_host }}</td>
               <td>
-                <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_edit' c.pk %}" title="Edit schedule">
+                <a href="{{ c.get_absolute_url }}" class="fw-semibold">{{ c.name }}</a>
+                <div class="text-muted small">{{ c.pve_host }}</div>
+              </td>
+              <td class="text-center">
+                <span class="fw-semibold">{{ c.stat_nodes }}</span>
+                {% if c.stat_nodes_online < c.stat_nodes %}
+                  <br><span class="badge text-bg-danger">
+                    <i class="mdi mdi-alert-circle"></i> {{ c.stat_nodes_online }}/{{ c.stat_nodes }} 上線
+                  </span>
+                {% else %}
+                  <br><span class="text-success small"><i class="mdi mdi-check-all"></i> 全上線</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                <span class="fw-semibold">{{ c.stat_vms }}</span>
+                <br><span class="text-success small"><i class="mdi mdi-play"></i> {{ c.stat_vms_running }}</span>
+              </td>
+              <td>
+                <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_edit' c.pk %}" title="編輯排程">
                   {% if c.sync_schedule == 'disabled' or not c.sync_schedule %}
                     <span class="text-muted">—</span>
-                  {% elif c.sync_schedule == 'hourly' %}
-                    <span class="badge text-bg-info">Hourly</span>
-                  {% elif c.sync_schedule == 'every_6h' %}
-                    <span class="badge text-bg-info">Every 6h</span>
-                  {% elif c.sync_schedule == 'daily' %}
-                    <span class="badge text-bg-secondary">Daily</span>
-                  {% elif c.sync_schedule == 'weekly' %}
-                    <span class="badge text-bg-secondary">Weekly</span>
+                  {% elif c.sync_schedule == 'hourly' or c.sync_schedule == 'every_3h' or c.sync_schedule == 'every_6h' %}
+                    <span class="badge text-bg-info">{{ c.get_sync_schedule_display }}</span>
                   {% else %}
                     <span class="badge text-bg-secondary">{{ c.get_sync_schedule_display }}</span>
                   {% endif %}
                 </a>
               </td>
-              <td>{% if c.last_sync %}{{ c.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
+              <td class="text-nowrap">
+                {% if c.last_sync %}{{ c.last_sync|date:"m-d H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
               <td>
                 {% if c.last_sync_status == 'success' %}
-                  <span class="badge text-bg-success">Success</span>
+                  <span class="badge text-bg-success">成功</span>
                 {% elif c.last_sync_status == 'failed' %}
-                  <span class="badge text-bg-danger">Failed</span>
+                  <span class="badge text-bg-danger">失敗</span>
                 {% elif c.last_sync_status %}
                   <span class="badge text-bg-secondary">{{ c.last_sync_status }}</span>
                 {% else %}
-                  <span class="badge text-bg-info">New</span>
+                  <span class="badge text-bg-info">未同步</span>
                 {% endif %}
               </td>
               <td>
                 <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline">
                   {% csrf_token %}
                   <input type="hidden" name="cluster" value="{{ c.name }}">
-                  <button type="submit" class="btn btn-xs btn-outline-success" title="Sync now">
+                  <button type="submit" class="btn btn-xs btn-outline-success" title="立即同步">
                     <i class="mdi mdi-sync"></i>
                   </button>
                 </form>
@@ -132,72 +205,72 @@
           </tbody>
         </table>
         {% else %}
-          <div class="p-3 text-muted">No PVE clusters configured. <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}">Add one →</a></div>
+          <div class="p-4 text-center text-muted">
+            <i class="mdi mdi-server-off fs-2 d-block mb-2"></i>
+            尚未設定 PVE 叢集。<a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_add' %}">立即新增 →</a>
+          </div>
         {% endif %}
       </div>
     </div>
   </div>
 
-  <div class="col-md-6">
-    <div class="card shadow-sm">
-      <h5 class="card-header bg-transparent">
-        <i class="mdi mdi-database-check"></i> PBS Servers
-        <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_add' %}" class="float-end btn btn-sm btn-outline-success">
-          <i class="mdi mdi-plus-thick"></i> Add
+  <div class="col-lg-5">
+    <div class="card shadow-sm h-100">
+      <h5 class="card-header bg-transparent d-flex align-items-center">
+        <i class="mdi mdi-database-check me-2"></i> PBS 備份伺服器
+        <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_add' %}" class="ms-auto btn btn-sm btn-outline-success">
+          <i class="mdi mdi-plus-thick"></i> 新增
         </a>
       </h5>
       <div class="card-body p-0">
         {% if pbs_servers %}
-        <table class="table table-sm table-hover mb-0">
-          <thead>
+        <table class="table table-sm table-hover mb-0 align-middle">
+          <thead class="table-light">
             <tr>
-              <th>Name</th>
-              <th>Host</th>
-              <th>Schedule</th>
-              <th>Last Sync</th>
-              <th>Status</th>
+              <th>名稱</th>
+              <th>排程</th>
+              <th>上次同步</th>
+              <th>狀態</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {% for pbs in pbs_servers %}
             <tr>
-              <td><a href="{{ pbs.get_absolute_url }}">{{ pbs.name }}</a></td>
-              <td>{{ pbs.display_host }}</td>
               <td>
-                <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_edit' pbs.pk %}" title="Edit schedule">
+                <a href="{{ pbs.get_absolute_url }}" class="fw-semibold">{{ pbs.name }}</a>
+                <div class="text-muted small">{{ pbs.display_host }}</div>
+              </td>
+              <td>
+                <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_edit' pbs.pk %}" title="編輯排程">
                   {% if pbs.sync_schedule == 'disabled' or not pbs.sync_schedule %}
                     <span class="text-muted">—</span>
-                  {% elif pbs.sync_schedule == 'hourly' %}
-                    <span class="badge text-bg-info">Hourly</span>
-                  {% elif pbs.sync_schedule == 'every_6h' %}
-                    <span class="badge text-bg-info">Every 6h</span>
-                  {% elif pbs.sync_schedule == 'daily' %}
-                    <span class="badge text-bg-secondary">Daily</span>
-                  {% elif pbs.sync_schedule == 'weekly' %}
-                    <span class="badge text-bg-secondary">Weekly</span>
+                  {% elif pbs.sync_schedule == 'hourly' or pbs.sync_schedule == 'every_3h' or pbs.sync_schedule == 'every_6h' %}
+                    <span class="badge text-bg-info">{{ pbs.get_sync_schedule_display }}</span>
                   {% else %}
                     <span class="badge text-bg-secondary">{{ pbs.get_sync_schedule_display }}</span>
                   {% endif %}
                 </a>
               </td>
-              <td>{% if pbs.last_sync %}{{ pbs.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
+              <td class="text-nowrap">
+                {% if pbs.last_sync %}{{ pbs.last_sync|date:"m-d H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
               <td>
                 {% if pbs.last_sync_status == 'success' %}
-                  <span class="badge text-bg-success">Success</span>
+                  <span class="badge text-bg-success">成功</span>
                 {% elif pbs.last_sync_status == 'failed' %}
-                  <span class="badge text-bg-danger">Failed</span>
+                  <span class="badge text-bg-danger">失敗</span>
                 {% elif pbs.last_sync_status %}
                   <span class="badge text-bg-secondary">{{ pbs.last_sync_status }}</span>
                 {% else %}
-                  <span class="badge text-bg-info">New</span>
+                  <span class="badge text-bg-info">未同步</span>
                 {% endif %}
               </td>
               <td>
                 <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-pbs-sync' pbs.pk %}" class="d-inline">
                   {% csrf_token %}
                   <input type="hidden" name="return_url" value="{{ request.path }}">
-                  <button type="submit" class="btn btn-xs btn-outline-success" title="Sync now">
+                  <button type="submit" class="btn btn-xs btn-outline-success" title="立即同步">
                     <i class="mdi mdi-sync"></i>
                   </button>
                 </form>
@@ -207,93 +280,104 @@
           </tbody>
         </table>
         {% else %}
-          <div class="p-3 text-muted">No PBS servers configured. <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_add' %}">Add one →</a></div>
+          <div class="p-4 text-center text-muted">
+            <i class="mdi mdi-database-off fs-2 d-block mb-2"></i>
+            尚未設定 PBS 伺服器。<a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_add' %}">立即新增 →</a>
+          </div>
         {% endif %}
       </div>
     </div>
   </div>
+
 </div>
 
-{# Info row: alerts + webhook #}
-<div class="row mb-4">
-  <div class="col-md-6">
-    <div class="card shadow-sm">
-      <h5 class="card-header bg-transparent">
-        <i class="mdi mdi-shield-alert"></i> Alerts
-      </h5>
-      <div class="card-body">
+{# ── Alerts + Webhook ── #}
+<div class="row g-3 mb-4">
+  <div class="col-md-5">
+    <div class="card shadow-sm h-100">
+      <h5 class="card-header bg-transparent"><i class="mdi mdi-shield-alert me-1"></i> 告警</h5>
+      <div class="card-body p-0">
         <ul class="list-group list-group-flush">
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-backup-restore text-warning"></i> Stale Backups (&gt;7d)</span>
-            <span class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill">{{ backup_alerts }}</span>
+            <span><i class="mdi mdi-backup-restore text-warning me-1"></i> 備份逾期（&gt;7 天）</span>
+            <a href="{% url 'plugins:pve_sync_plugin:pvebackupstatus_list' %}" class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-webhook text-info"></i> Pending Webhooks</span>
-            <span class="badge text-bg-{% if pending_webhooks %}info{% else %}success{% endif %} rounded-pill">{{ pending_webhooks }}</span>
+            <span><i class="mdi mdi-webhook text-info me-1"></i> 待處理 Webhook</span>
+            <a href="{% url 'plugins:pve_sync_plugin:pvewebhookevent_list' %}" class="badge text-bg-{% if pending_webhooks %}info{% else %}success{% endif %} rounded-pill text-decoration-none">{{ pending_webhooks }}</a>
           </li>
+          {% if offline_nodes > 0 %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span><i class="mdi mdi-server-off text-danger me-1"></i> 節點離線</span>
+            <span class="badge text-bg-danger rounded-pill">{{ offline_nodes }}</span>
+          </li>
+          {% endif %}
         </ul>
       </div>
     </div>
   </div>
-  <div class="col-md-6">
-    <div class="card shadow-sm">
-      <h5 class="card-header bg-transparent">
-        <i class="mdi mdi-webhook"></i> Webhook Info
-      </h5>
+  <div class="col-md-7">
+    <div class="card shadow-sm h-100">
+      <h5 class="card-header bg-transparent"><i class="mdi mdi-webhook me-1"></i> Webhook 端點</h5>
       <div class="card-body">
-        <p class="mb-1 text-muted small">Send PVE events to this endpoint (POST, HMAC-verified):</p>
+        <p class="mb-2 text-muted small">將 PVE 事件 POST 到此 URL（支援 HMAC 驗證）：</p>
         <div class="input-group input-group-sm">
           <input type="text" class="form-control font-monospace" value="{{ webhook_url }}" readonly>
           <button class="btn btn-outline-secondary" type="button"
-                  onclick="navigator.clipboard.writeText('{{ webhook_url }}')">
+                  onclick="navigator.clipboard.writeText('{{ webhook_url }}'); this.innerHTML='<i class=\'mdi mdi-check\'></i>'">
             <i class="mdi mdi-content-copy"></i>
           </button>
         </div>
         <p class="mt-2 mb-0 text-muted small">
-          Set <code>webhook_secret</code> in <a href="{% url 'plugins:pve_sync_plugin:settings' %}">Settings</a>
-          to enable HMAC signature verification.
+          在 <a href="{% url 'plugins:pve_sync_plugin:settings' %}">設定</a> 中填入 <code>webhook_secret</code> 以啟用 HMAC 簽章驗證。
         </p>
       </div>
     </div>
   </div>
 </div>
 
-{# Recent Jobs #}
+{# ── Recent Sync Jobs ── #}
 <div class="card shadow-sm">
-  <h5 class="card-header bg-transparent">
-    <i class="mdi mdi-history"></i> Recent Sync Jobs
-    <a href="{% url 'plugins:pve_sync_plugin:pvesyncjob_list' %}" class="float-end btn btn-sm btn-outline-primary">View All</a>
+  <h5 class="card-header bg-transparent d-flex align-items-center">
+    <i class="mdi mdi-history me-2"></i> 最近同步記錄
+    <a href="{% url 'plugins:pve_sync_plugin:pvesyncjob_list' %}" class="ms-auto btn btn-sm btn-outline-secondary">查看全部</a>
   </h5>
   <div class="table-responsive">
-    <table class="table table-hover mb-0">
-      <thead>
+    <table class="table table-hover table-sm mb-0 align-middle">
+      <thead class="table-light">
         <tr>
-          <th>ID</th>
-          <th>Cluster / Server</th>
-          <th>Status</th>
-          <th>Trigger</th>
-          <th>Started</th>
-          <th>Finished</th>
-          <th>VMs</th>
-          <th>Error</th>
+          <th>#</th>
+          <th>叢集</th>
+          <th>狀態</th>
+          <th>觸發</th>
+          <th>開始時間</th>
+          <th>耗時</th>
+          <th>VM 成功/總計</th>
         </tr>
       </thead>
       <tbody>
         {% for job in recent_jobs %}
           <tr>
-            <td><a href="{{ job.get_absolute_url }}">#{{ job.id }}</a></td>
+            <td><a href="{{ job.get_absolute_url }}" class="text-muted">#{{ job.id }}</a></td>
             <td>{{ job.cluster_name }}</td>
             <td><span class="badge text-bg-{{ job.status_badge }}">{{ job.get_status_display }}</span></td>
             <td>{{ job.get_trigger_display }}</td>
-            <td>{{ job.start_time|date:"Y-m-d H:i" }}</td>
-            <td>{% if job.end_time %}{{ job.end_time|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-            <td>{{ job.success_vms }}/{{ job.total_vms }}</td>
-            <td>{% if job.error_message %}<span class="text-danger small" title="{{ job.error_message }}">{{ job.error_message|truncatechars:60 }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td class="text-nowrap">{{ job.start_time|date:"m-d H:i" }}</td>
+            <td>{% if job.duration %}{{ job.duration|floatformat:0 }}s{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>
+              {% if job.total_vms > 0 %}
+                <span class="text-success">{{ job.success_vms }}</span> / {{ job.total_vms }}
+              {% elif job.status == 'running' %}
+                <span class="text-muted">進行中…</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="8" class="text-muted text-center py-4">
-              <i class="mdi mdi-information-outline"></i> No sync jobs recorded yet. Click <strong>Sync Now</strong> to start.
+            <td colspan="7" class="text-center text-muted py-4">
+              <i class="mdi mdi-information-outline me-1"></i> 尚無同步記錄，按下「Sync Now」開始。
             </td>
           </tr>
         {% endfor %}
@@ -301,4 +385,5 @@
     </table>
   </div>
 </div>
+
 {% endblock %}

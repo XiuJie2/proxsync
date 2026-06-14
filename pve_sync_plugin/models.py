@@ -286,6 +286,15 @@ class PveClusterConfig(NetBoxModel):
     def __str__(self):
         return self.name
 
+    def get_sync_schedule_color(self):
+        return {
+            'hourly': 'info',
+            'every_3h': 'info',
+            'every_6h': 'info',
+            'daily': 'secondary',
+            'weekly': 'secondary',
+        }.get(self.sync_schedule, 'secondary')
+
     def get_absolute_url(self):
         return reverse("plugins:pve_sync_plugin:pveclusterconfig", args=[self.pk])
 
@@ -341,6 +350,15 @@ class PbsServerConfig(NetBoxModel):
 
     def __str__(self):
         return self.name
+
+    def get_sync_schedule_color(self):
+        return {
+            'hourly': 'info',
+            'every_3h': 'info',
+            'every_6h': 'info',
+            'daily': 'secondary',
+            'weekly': 'secondary',
+        }.get(self.sync_schedule, 'secondary')
 
     def get_absolute_url(self):
         return reverse("plugins:pve_sync_plugin:pbsserverconfig", args=[self.pk])

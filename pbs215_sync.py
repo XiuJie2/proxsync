@@ -195,18 +195,38 @@ class PBSToNetBoxSync:
             # IP
             if cidr:
                 nb_ip = self.nb.ipam.ip_addresses.get(address=cidr)
+                assigned_to_this_device = False
                 if not nb_ip:
                     nb_ip = self.nb.ipam.ip_addresses.create(
                         address=cidr, status='active',
                         assigned_object_type='dcim.interface', assigned_object_id=nb_if.id
                     )
+                    assigned_to_this_device = True
                 else:
-                    nb_ip.assigned_object_type = 'dcim.interface'
-                    nb_ip.assigned_object_id = nb_if.id
-                    nb_ip.save()
+                    already_on_this_iface = (
+                        getattr(nb_ip, 'assigned_object_id', None) == nb_if.id
+                        and getattr(nb_ip, 'assigned_object_type', '') == 'dcim.interface'
+                    )
+                    if already_on_this_iface:
+                        assigned_to_this_device = True
+                    else:
+                        try:
+                            nb_ip.assigned_object_type = 'dcim.interface'
+                            nb_ip.assigned_object_id = nb_if.id
+                            nb_ip.save()
+                            assigned_to_this_device = True
+                        except Exception as e:
+                            if 'primary' in str(e).lower() or '400' in str(e):
+                                logger.warning(
+                                    "IP %s is primary IP elsewhere, skipping reassignment", cidr
+                                )
+                            else:
+                                raise
 
-                if not primary_ip_candidate or (api_host_ip in cidr):
-                    primary_ip_candidate = nb_ip
+                # Only use as primary candidate if actually assigned to this device
+                if assigned_to_this_device:
+                    if not primary_ip_candidate or (api_host_ip in cidr):
+                        primary_ip_candidate = nb_ip
 
         if primary_ip_candidate:
             device.primary_ip4 = primary_ip_candidate.id

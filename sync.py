@@ -54,6 +54,7 @@ class OptimizedPVEToNetBoxSync:
         self.cluster_name = "default"
         self.monitoring_config = {}
         self.sync_config = {}
+        self._newly_created_nodes: set = set()
 
         if self.enhanced_mode:
             try:
@@ -377,29 +378,22 @@ class OptimizedPVEToNetBoxSync:
             ]
             missing_fields = [f for f in required_fields if f['name'] not in existing_names]
             if missing_fields:
-                print(f"✗ 缺少 {len(missing_fields)} 個 custom fields:")
+                print(f"⚠ 缺少 {len(missing_fields)} 個 custom fields，相關欄位將略過（同步繼續）:")
                 for field in missing_fields:
                     print(f"  - {field['name']} ({field['type']})")
-                missing_fields_list = "\n".join([f"- {f['name']}" for f in missing_fields])
-                notification = f"""
-⚠️ <b>NetBox Custom Fields 缺失</b>
-
-以下 custom fields 不存在於 NetBox 中，請建立後重新執行同步：
-
-{missing_fields_list}
-
-NetBox 路徑: Extensions → Custom Fields → Add Custom Field
-"""
-                self.send_telegram_notification(notification)
-                print("\n請在 NetBox 中建立這些 custom fields 後重新執行同步。")
-                return False
+                missing_list = "\n".join([f"- {f['name']}" for f in missing_fields])
+                self.send_telegram_notification(
+                    f"⚠️ <b>NetBox Custom Fields 缺失</b>\n\n以下欄位不存在，同步將略過這些欄位：\n\n{missing_list}\n\nNetBox 路徑: Extensions → Custom Fields"
+                )
+                self.custom_fields_created = False
             else:
                 print("✓ 所有必要的 custom fields 都已存在")
                 self.custom_fields_created = True
-                return True
+            return True
         except Exception as e:
-            print(f"✗ 檢查 custom fields 失敗: {e}")
-            return False
+            print(f"⚠ 檢查 custom fields 失敗: {e}，custom field 同步將略過")
+            self.custom_fields_created = False
+            return True
 
     # ---------- 輔助函數 ----------
     def get_vm_pool(self, vm_id: int, vm_type: str) -> Optional[str]:
@@ -450,6 +444,68 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
             return site.id
         except Exception as e:
             print(f"處理站點失敗: {e}")
+            return None
+
+    def get_or_create_manufacturer(self, name: str = "Generic") -> Optional[int]:
+        key = name.lower()
+        if key in self.nb_cache['manufacturers']:
+            return self.nb_cache['manufacturers'][key].id
+        try:
+            manufacturers = list(self.nb_api.dcim.manufacturers.filter(name=name))
+            if manufacturers:
+                manufacturer = manufacturers[0]
+                self.nb_cache['manufacturers'][key] = manufacturer
+                return manufacturer.id
+            slug = name.lower().replace(' ', '-').replace('/', '-')[:50]
+            manufacturer = self.nb_api.dcim.manufacturers.create(name=name, slug=slug)
+            self.nb_cache['manufacturers'][key] = manufacturer
+            return manufacturer.id
+        except Exception as e:
+            print(f"  建立廠商失敗 {name}: {e}")
+            return None
+
+    def get_or_create_device_type(self, model_name: str = "Standard Server") -> Optional[int]:
+        key = model_name.lower()
+        if key in self.nb_cache['device_types']:
+            return self.nb_cache['device_types'][key].id
+        try:
+            device_types = list(self.nb_api.dcim.device_types.filter(model=model_name))
+            if device_types:
+                device_type = device_types[0]
+                self.nb_cache['device_types'][key] = device_type
+                return device_type.id
+            manufacturer_id = self.get_or_create_manufacturer("Generic")
+            if not manufacturer_id:
+                return None
+            slug = model_name.lower().replace(' ', '-').replace('/', '-')[:50]
+            device_type = self.nb_api.dcim.device_types.create(
+                model=model_name, slug=slug, manufacturer=manufacturer_id,
+                u_height=1, is_full_depth=False
+            )
+            self.nb_cache['device_types'][key] = device_type
+            return device_type.id
+        except Exception as e:
+            print(f"  建立設備類型失敗 {model_name}: {e}")
+            return None
+
+    def get_or_create_device_role(self, role_name: str = "PVE") -> Optional[int]:
+        key = role_name.lower()
+        if key in self.nb_cache['device_roles']:
+            return self.nb_cache['device_roles'][key].id
+        try:
+            roles = list(self.nb_api.dcim.device_roles.filter(name=role_name))
+            if roles:
+                role = roles[0]
+                self.nb_cache['device_roles'][key] = role
+                return role.id
+            slug = role_name.lower().replace(' ', '-').replace('/', '-')[:50]
+            role = self.nb_api.dcim.device_roles.create(
+                name=role_name, slug=slug, color="c0c0c0", vm_role=False
+            )
+            self.nb_cache['device_roles'][key] = role
+            return role.id
+        except Exception as e:
+            print(f"  建立設備角色失敗 {role_name}: {e}")
             return None
 
     def get_or_create_cluster_type(self, cluster_type_name: str = "Proxmox") -> Optional[int]:
@@ -698,6 +754,8 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
             print("✗ 無法獲取或建立集群")
             return False, {}, {}
         print(f"  使用集群: {cluster['name']} (ID: {cluster['id']})")
+        default_device_role = self.sync_config.get('default_node_role', 'PVE')
+        default_device_type = self.sync_config.get('default_node_type', 'Standard Server')
         devices = {}
         success_count = 0
         for node in self.pve_cache['nodes']:
@@ -705,19 +763,41 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
             node_status = node.get('status', 'unknown')
             device = self.nb_cache['devices'].get(node_name.lower())
             if not device:
-                print(f"  ✗ 找不到設備: {node_name}")
-                continue
-            # 節點離線檢測（略）
-            # 更新設備狀態
-            try:
-                old_status = device.status
-                new_status = 'active' if node_status == 'online' else 'offline'
-                device.status = new_status
-                device.save()
-                if old_status != new_status:
-                    print(f"  設備狀態更新: {node_name} {old_status} → {new_status}")
-            except Exception as e:
-                print(f"  更新設備狀態失敗: {e}")
+                print(f"  → 設備 {node_name} 不存在，嘗試自動建立...")
+                device_role_id = self.get_or_create_device_role(default_device_role)
+                if not device_role_id:
+                    print(f"  ✗ 無法取得設備角色，跳過節點 {node_name}")
+                    continue
+                device_type_id = self.get_or_create_device_type(default_device_type)
+                if not device_type_id:
+                    print(f"  ✗ 無法取得設備類型，跳過節點 {node_name}")
+                    continue
+                try:
+                    device = self.nb_api.dcim.devices.create(
+                        name=node_name,
+                        role=device_role_id,
+                        device_type=device_type_id,
+                        site=site_id,
+                        status='active' if node_status == 'online' else 'offline',
+                        cluster=cluster['id'],
+                    )
+                    self.nb_cache['devices'][node_name.lower()] = device
+                    self._newly_created_nodes.add(node_name.lower())
+                    print(f"  ✓ 成功建立設備: {node_name} (ID: {device.id})")
+                except Exception as e:
+                    print(f"  ✗ 建立設備失敗 {node_name}: {e}")
+                    continue
+            # 更新設備狀態（跳過剛建立的節點；正確比對 pynetbox Status 物件）
+            if node_name.lower() not in self._newly_created_nodes:
+                try:
+                    old_val = getattr(device.status, 'value', str(device.status))
+                    new_val = 'active' if node_status == 'online' else 'offline'
+                    if old_val != new_val:
+                        device.status = new_val
+                        device.save()
+                        print(f"  設備狀態更新: {node_name} {old_val} → {new_val}")
+                except Exception as e:
+                    print(f"  更新設備狀態失敗: {e}")
             # 同步硬體資訊
             hw_info = self.fetch_node_hardware_info(node_name)
             if hw_info:
@@ -731,13 +811,15 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
                     else:
                         comments += hw_line
                     device.comments = comments
-                    custom_fields = {}
                     if self.custom_fields_created:
-                        custom_fields['host_cpu_cores'] = hw_info['cpu_cores']
-                        custom_fields['host_memory'] = f"{hw_info['memory_total'] / (1024**3):.1f} GB"
-                        custom_fields['host_disk_size'] = f"{hw_info['disk_total'] / (1024**3):.1f} GB"
-                        custom_fields['host_disk_free'] = f"{hw_info['disk_free'] / (1024**3):.1f} GB"
-                    device.custom_fields = custom_fields
+                        cf = dict(device.custom_fields or {})
+                        cf.update({
+                            'host_cpu_cores': hw_info['cpu_cores'],
+                            'host_memory': f"{hw_info['memory_total'] / (1024**3):.1f} GB",
+                            'host_disk_size': f"{hw_info['disk_total'] / (1024**3):.1f} GB",
+                            'host_disk_free': f"{hw_info['disk_free'] / (1024**3):.1f} GB",
+                        })
+                        device.custom_fields = cf
                     device.save()
                 except Exception as e:
                     print(f"  更新設備硬體資訊失敗 {node_name}: {e}")
@@ -968,7 +1050,7 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
         return changes
 
     # ---------- 虛擬機處理主邏輯 ----------
-    def process_virtual_machine(self, vm_data: Dict, device, cluster: Dict) -> bool:
+    def process_virtual_machine(self, vm_data: Dict, device, cluster: Dict, force: bool = False) -> bool:
         vm_id = str(vm_data['vmid'])
         original_vm_name = vm_data['name']
         vm_type = vm_data.get('type', 'qemu')
@@ -1092,17 +1174,32 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
                 })
         if self.enhanced_mode:
             self.detect_config_drift(int(vm_id), original_vm_name, vm_config, tag_names, network_interfaces)
-            if not self.should_sync_vm(int(vm_id), vm_config, tag_names, network_interfaces):
-                print(f"  ℹ️  VM {original_vm_name} 無配置變更，跳過同步")
-                if self.state_db:
-                    config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
-                    memory = int(vm_config.get('memory', 0))
-                    vcpus_save = int(vm_config.get('vcpus', vcpus))
-                    self.state_db.save_vm_config_snapshot(
-                        vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
-                        memory=memory, vcpus=vcpus_save, tags=tag_names
-                    )
-                return True
+            if not force and not self.should_sync_vm(int(vm_id), vm_config, tag_names, network_interfaces):
+                cached_vm = self.nb_cache['virtual_machines_by_serial'].get(vm_id)
+                if cached_vm is None:
+                    # VM 在 NetBox 中不存在（例如隨節點被連帶刪除），
+                    # 但 state_db 仍有舊 hash 導致增量跳過。強制往下完整同步。
+                    print(f"  ⚠️  VM {original_vm_name} 不在 NetBox 中，忽略增量記錄強制建立")
+                else:
+                    # VM 存在；確保 device 關聯指向正確節點
+                    current_device_id = getattr(getattr(cached_vm, 'device', None), 'id', None)
+                    if current_device_id != device.id:
+                        try:
+                            cached_vm.update({'device': device.id})
+                            print(f"  ✓ VM {original_vm_name} 設備關聯已修正: → {device.name}")
+                        except Exception as e:
+                            print(f"  ✗ 更新 VM {original_vm_name} 設備關聯失敗: {e}")
+                    print(f"  ℹ️  VM {original_vm_name} 無配置變更，跳過同步")
+                    if self.state_db:
+                        config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
+                        memory = int(vm_config.get('memory', 0))
+                        vcpus_save = int(vm_config.get('vcpus', vcpus))
+                        self.state_db.save_vm_config_snapshot(
+                            vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
+                            memory=memory, vcpus=vcpus_save, tags=tag_names
+                        )
+                    return True
+                # cached_vm is None → 繼續往下完整建立此 VM
         custom_fields = {}
         if self.custom_fields_created:
             # 清理衝突的 vm_id
@@ -1222,10 +1319,13 @@ NetBox 路徑: Extensions → Custom Fields → Add Custom Field
             if not device:
                 print(f"  ✗ 找不到對應的設備: {node_name}")
                 continue
+            node_is_new = node_name.lower() in self._newly_created_nodes
+            if node_is_new:
+                print(f"  ℹ️  節點 {node_name} 為新建，強制全量同步所有 VM")
             for vm in vms:
                 total_count += 1
                 vm['node'] = node_name
-                if self.process_virtual_machine(vm, device, cluster):
+                if self.process_virtual_machine(vm, device, cluster, force=node_is_new):
                     success_count += 1
         print(f"\n虛擬機同步完成: {success_count}/{total_count} 個虛擬機")
         return success_count > 0, success_count, total_count

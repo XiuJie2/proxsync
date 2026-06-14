@@ -158,7 +158,7 @@ def build_runtime_config_from_db(cluster_name="default"):
         },
         "state_db": {
             "path": get_plugin_config(
-                "state_db_path", "/var/lib/netbox/pve-sync-state.db"
+                "state_db_path", "/var/lib/pve-sync/state.db"
             ),
             "cleanup_days": 90,
         },
