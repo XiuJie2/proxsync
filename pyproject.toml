@@ -54,7 +54,7 @@ dev = [
 include = ["pve_sync_plugin*"]
 
 [tool.setuptools]
-py-modules = ["config", "state_db", "sync"]
+py-modules = ["config", "state_db", "sync", "pbs215_sync"]
 
 [tool.setuptools.package-data]
 pve_sync_plugin = ["templates/**/*.html"]
