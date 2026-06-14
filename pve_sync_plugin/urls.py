@@ -153,7 +153,7 @@ urlpatterns = [
         name="pbsserverconfig_bulk_delete",
     ),
     path(
-        "pbs/<int:pk>/sync/",
+        "pbs/<int:pbs_pk>/sync/",
         views.TriggerPbsSyncView.as_view(),
         name="trigger-pbs-sync",
     ),
