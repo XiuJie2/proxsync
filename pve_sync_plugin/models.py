@@ -286,6 +286,35 @@ class PveClusterConfig(NetBoxModel):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        # Cascade name changes so that PveSyncJob records and plugin settings
+        # stay consistent, and state_db incremental history is preserved.
+        old_name = None
+        if self.pk:
+            try:
+                old_name = (
+                    PveClusterConfig.objects.filter(pk=self.pk)
+                    .values_list("name", flat=True)
+                    .first()
+                )
+            except Exception:
+                pass
+
+        super().save(*args, **kwargs)
+
+        if old_name and old_name != self.name:
+            PveSyncJob.objects.filter(cluster_name=old_name).update(cluster_name=self.name)
+            PvePluginSettings.objects.filter(default_cluster_name=old_name).update(
+                default_cluster_name=self.name
+            )
+            # Rename cluster in state_db so incremental sync stays effective.
+            try:
+                from state_db import StateDB
+                db_path = PvePluginSettings.load().state_db_path or "/var/lib/pve-sync/state.db"
+                StateDB(db_path).rename_cluster(old_name, self.name)
+            except Exception:
+                pass  # state_db rename is best-effort; full sync will happen if it fails
+
     def get_sync_schedule_color(self):
         return {
             'hourly': 'info',

@@ -413,6 +413,21 @@ class StateDB:
                     stats[table] = cursor.fetchone()[0]
                 return stats
 
+    def rename_cluster(self, old_name: str, new_name: str) -> int:
+        """Rename cluster_name across all tables — call when PveClusterConfig.name changes."""
+        total = 0
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                for table in ("vm_config_history", "node_status_history",
+                              "node_resource_history", "sync_log"):
+                    cur = conn.execute(
+                        f"UPDATE {table} SET cluster_name = ? WHERE cluster_name = ?",
+                        (new_name, old_name),
+                    )
+                    total += cur.rowcount
+                conn.commit()
+        return total
+
 
 # 便利函数
 def compute_config_hash(vm_config: Dict[str, Any], tags: List[str], network_interfaces: Optional[List[Dict[str, Any]]] = None) -> str:
