@@ -122,6 +122,11 @@ class DashboardView(PermissionRequiredMixin, View):
         backup_alerts = PveBackupStatus.objects.filter(
             last_backup__lt=timezone.now() - timezone.timedelta(days=7)
         ).count()
+        offline_node_list = (
+            node_qs.exclude(status="active")
+            .select_related("cluster")
+            .order_by("name")
+        ) if nb_cluster_ids else Device.objects.none()
 
         # Recent jobs (last 10 only — full history has its own list page)
         recent_jobs = PveSyncJob.objects.order_by("-start_time")[:10]
@@ -140,6 +145,7 @@ class DashboardView(PermissionRequiredMixin, View):
             "staged_vms": vm_stats["staged"],
             "pending_webhooks": pending_webhooks,
             "backup_alerts": backup_alerts,
+            "offline_node_list": offline_node_list,
             "recent_jobs": recent_jobs,
             "webhook_url": webhook_url,
         }

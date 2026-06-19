@@ -307,9 +307,20 @@
             <a href="{% url 'plugins:pve_sync_plugin:pvewebhookevent_list' %}" class="badge text-bg-{% if pending_webhooks %}info{% else %}success{% endif %} rounded-pill text-decoration-none">{{ pending_webhooks }}</a>
           </li>
           {% if offline_nodes > 0 %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-server-off text-danger me-1"></i> 節點離線</span>
-            <span class="badge text-bg-danger rounded-pill">{{ offline_nodes }}</span>
+          <li class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center">
+              <span><i class="mdi mdi-server-off text-danger me-1"></i> 節點離線</span>
+              <span class="badge text-bg-danger rounded-pill">{{ offline_nodes }}</span>
+            </div>
+            <ul class="mt-2 mb-0 ps-3 small">
+              {% for node in offline_node_list %}
+              <li class="mb-1">
+                <a href="{{ node.get_absolute_url }}" class="text-danger fw-semibold">{{ node.name }}</a>
+                {% if node.cluster %}<span class="text-muted">（{{ node.cluster.name }}）</span>{% endif %}
+                <span class="badge text-bg-secondary ms-1">{{ node.status }}</span>
+              </li>
+              {% endfor %}
+            </ul>
           </li>
           {% endif %}
         </ul>
