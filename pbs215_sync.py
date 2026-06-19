@@ -96,8 +96,10 @@ class PBSToNetBoxSync:
         status = self.pbs.get(f"/api2/json/nodes/{node_name}/status")
         version_data = self.pbs.get("/api2/json/version") or {}
         if not status:
-            logger.error("Cannot fetch status for PBS node '%s' — check host/credentials", node_name)
-            return
+            raise RuntimeError(
+                f"Cannot fetch status for PBS node '{node_name}' "
+                f"(host={_get_env('PBS_HOST')}) — check connectivity or pbs_node_name setting"
+            )
 
         pbs_ver = version_data.get('version', '4.x')
         cpu_cores = int(status.get('cpuinfo', {}).get('cpus', 0))
