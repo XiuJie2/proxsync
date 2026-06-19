@@ -743,15 +743,20 @@ class OptimizedPVEToNetBoxSync:
     # ---------- 節點同步 ----------
     def sync_pve_nodes_to_netbox(self) -> Tuple[bool, Dict[str, Any], Dict]:
         print("\n開始同步 PVE 節點...")
-        site_id = self.get_or_create_site()
+        settings = self.cluster_config.get('settings', {}) if self.cluster_config else {}
+        site_name = settings.get('site_name', 'Main Datacenter')
+        cluster_type_name = settings.get('cluster_type', 'Proxmox')
+        netbox_cluster_name = settings.get('cluster_name', 'Proxmox Cluster')
+
+        site_id = self.get_or_create_site(site_name)
         if not site_id:
             print("✗ 無法獲取或建立站點")
             return False, {}, {}
-        cluster_type_id = self.get_or_create_cluster_type()
+        cluster_type_id = self.get_or_create_cluster_type(cluster_type_name)
         if not cluster_type_id:
             print("✗ 無法獲取或建立集群類型")
             return False, {}, {}
-        cluster = self.get_or_create_cluster("Proxmox Cluster", site_id, cluster_type_id)
+        cluster = self.get_or_create_cluster(netbox_cluster_name, site_id, cluster_type_id)
         if not cluster:
             print("✗ 無法獲取或建立集群")
             return False, {}, {}
