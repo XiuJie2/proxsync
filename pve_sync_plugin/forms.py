@@ -110,6 +110,7 @@ class PveClusterConfigForm(NetBoxModelForm):
             "netbox_cluster",
             "enabled",
             "sync_schedule",
+            "notify_on_sync",
         )
         help_texts = {
             "sync_schedule": (

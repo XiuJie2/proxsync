@@ -320,6 +320,10 @@ class PveClusterConfig(NetBoxModel):
         choices=SyncScheduleChoices,
         default=SyncScheduleChoices.DISABLED,
     )
+    notify_on_sync = models.BooleanField(
+        default=True,
+        help_text="同步時是否發送 Telegram 通知（含同步開始/完成、漂移偵測等）",
+    )
 
     last_sync = models.DateTimeField(null=True, blank=True)
     last_sync_status = models.CharField(max_length=20, blank=True)

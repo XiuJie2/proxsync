@@ -98,11 +98,17 @@ def build_runtime_config_from_db(cluster_name="default"):
             else get_plugin_config("default_netbox_cluster", "Proxmox Cluster")
         )
         logical_name = cluster.name
+        notify_on_sync = cluster.notify_on_sync
     else:
         raise ConfigValidationError(
             f"No enabled PVE cluster config found for cluster '{cluster_name}'. "
             "Please add a cluster in PVE Clusters → Add Cluster."
         )
+
+    telegram_enabled = notify_on_sync and bool(
+        get_plugin_config("telegram_bot_token", "")
+        and get_plugin_config("telegram_chat_id", "")
+    )
 
     return {
         "clusters": [
@@ -127,10 +133,7 @@ def build_runtime_config_from_db(cluster_name="default"):
             }
         ],
         "telegram": {
-            "enabled": bool(
-                get_plugin_config("telegram_bot_token", "")
-                and get_plugin_config("telegram_chat_id", "")
-            ),
+            "enabled": telegram_enabled,
             "bot_token": get_plugin_config("telegram_bot_token", ""),
             "chat_id": get_plugin_config("telegram_chat_id", ""),
         },
