@@ -1190,12 +1190,21 @@ class OptimizedPVEToNetBoxSync:
                 else:
                     # VM 存在；確保 device 關聯指向正確節點
                     current_device_id = getattr(getattr(cached_vm, 'device', None), 'id', None)
+                    current_cluster_id = getattr(getattr(cached_vm, 'cluster', None), 'id', None)
+                    fix = {}
                     if current_device_id != device.id:
+                        fix['device'] = device.id
+                    if current_cluster_id != cluster['id']:
+                        fix['cluster'] = cluster['id']
+                    if fix:
                         try:
-                            cached_vm.update({'device': device.id})
-                            print(f"  ✓ VM {original_vm_name} 設備關聯已修正: → {device.name}")
+                            cached_vm.update(fix)
+                            if 'cluster' in fix:
+                                print(f"  ✓ VM {original_vm_name} 叢集關聯已修正: → {cluster['name']}")
+                            if 'device' in fix:
+                                print(f"  ✓ VM {original_vm_name} 設備關聯已修正: → {device.name}")
                         except Exception as e:
-                            print(f"  ✗ 更新 VM {original_vm_name} 設備關聯失敗: {e}")
+                            print(f"  ✗ 更新 VM {original_vm_name} 關聯失敗: {e}")
                     print(f"  ℹ️  VM {original_vm_name} 無配置變更，跳過同步")
                     if self.state_db:
                         config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
