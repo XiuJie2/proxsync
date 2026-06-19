@@ -219,8 +219,10 @@ class OptimizedPVEToNetBoxSync:
                 print(f"PVE API 連接失敗 (嘗試 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
-        print("✗ 達到最大重試次數，退出程式")
-        return False
+        raise RuntimeError(
+            f"PVE API 無法連線 (host={os.environ.get('PVE_API_HOST')})，"
+            f"已重試 {max_retries} 次仍失敗，請確認網路連線與防火牆設定"
+        )
 
     def connect_netbox(self) -> bool:
         try:
@@ -1346,8 +1348,7 @@ class OptimizedPVEToNetBoxSync:
 """
         self.send_telegram_notification(start_message)
         start_time = time.time()
-        if not self.connect_pve():
-            return
+        self.connect_pve()
         if not self.connect_netbox():
             return
         self.load_all_netbox_objects()
