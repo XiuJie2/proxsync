@@ -245,10 +245,16 @@ class OptimizedPVEToNetBoxSync:
         start_time = time.time()
         for device in self.nb_api.dcim.devices.all():
             self.nb_cache['devices'][device.name.lower()] = device
+            dev_cluster_id = device.cluster.id if device.cluster else 'no-cluster'
+            self.nb_cache['devices'][f"{device.name.lower()}::{dev_cluster_id}"] = device
         for vm in self.nb_api.virtualization.virtual_machines.all():
             self.nb_cache['virtual_machines'][vm.id] = vm
             if vm.serial:
-                self.nb_cache['virtual_machines_by_serial'][str(vm.serial)] = vm
+                cluster_id = vm.cluster.id if vm.cluster else 'no-cluster'
+                # Key includes cluster_id so same vmid from different PVE clusters
+                # are stored separately and don't overwrite each other.
+                serial_key = f"{vm.serial}::{cluster_id}"
+                self.nb_cache['virtual_machines_by_serial'][serial_key] = vm
             cluster_id = vm.cluster.id if vm.cluster else 'no-cluster'
             key = f"{vm.name.lower()}::{cluster_id}"
             self.nb_cache['virtual_machines_by_name'][key] = vm
@@ -766,9 +772,22 @@ class OptimizedPVEToNetBoxSync:
         devices = {}
         success_count = 0
         for node in self.pve_cache['nodes']:
-            node_name = node['node']
+            pve_node_name = node['node']   # original PVE node name (used as devices dict key)
+            node_name = pve_node_name      # may be overridden below if name collision
             node_status = node.get('status', 'unknown')
-            device = self.nb_cache['devices'].get(node_name.lower())
+            # Prefer cluster-scoped lookup so same-named nodes in different clusters
+            # don't collide (e.g. both clusters having a node named 'pve').
+            # Also check the collision-fallback name ({node}-{cluster_name}) in case a
+            # previous sync had to rename due to a (name, site) uniqueness conflict.
+            collision_name = f"{node_name}-{self.cluster_name}".lower()
+            device = (
+                self.nb_cache['devices'].get(f"{node_name.lower()}::{cluster['id']}")
+                or self.nb_cache['devices'].get(f"{collision_name}::{cluster['id']}")
+                or self.nb_cache['devices'].get(node_name.lower())
+            )
+            # Reject match if it belongs to a different cluster
+            if device and getattr(getattr(device, 'cluster', None), 'id', None) != cluster['id']:
+                device = None
             if not device:
                 print(f"  → 設備 {node_name} 不存在，嘗試自動建立...")
                 device_role_id = self.get_or_create_device_role(default_device_role)
@@ -788,12 +807,43 @@ class OptimizedPVEToNetBoxSync:
                         status='active' if node_status == 'online' else 'offline',
                         cluster=cluster['id'],
                     )
-                    self.nb_cache['devices'][node_name.lower()] = device
-                    self._newly_created_nodes.add(node_name.lower())
-                    print(f"  ✓ 成功建立設備: {node_name} (ID: {device.id})")
                 except Exception as e:
-                    print(f"  ✗ 建立設備失敗 {node_name}: {e}")
-                    continue
+                    # Fallback: pynetbox may fail on NetBox 4.6+ 'location' bug;
+                    # use Django ORM directly which bypasses the API validation quirk.
+                    try:
+                        from dcim.models import Device
+                        create_name = node_name
+                        try:
+                            device_orm = Device.objects.create(
+                                name=create_name,
+                                role_id=device_role_id,
+                                device_type_id=device_type_id,
+                                site_id=site_id,
+                                status='active' if node_status == 'online' else 'offline',
+                                cluster_id=cluster['id'],
+                            )
+                        except Exception:
+                            # (name, site) unique constraint — suffix with cluster name
+                            create_name = f"{node_name}-{self.cluster_name}"
+                            device_orm = Device.objects.create(
+                                name=create_name,
+                                role_id=device_role_id,
+                                device_type_id=device_type_id,
+                                site_id=site_id,
+                                status='active' if node_status == 'online' else 'offline',
+                                cluster_id=cluster['id'],
+                            )
+                            print(f"  ⚠ 名稱衝突，改用: {create_name}")
+                        # Fetch back via API so we get a pynetbox object
+                        device = self.nb_api.dcim.devices.get(device_orm.pk)
+                        node_name = create_name  # update local var so cache uses correct key
+                    except Exception as e2:
+                        print(f"  ✗ 建立設備失敗 {node_name}: {e} / {e2}")
+                        continue
+                self.nb_cache['devices'][node_name.lower()] = device
+                self.nb_cache['devices'][f"{node_name.lower()}::{cluster['id']}"] = device
+                self._newly_created_nodes.add(node_name.lower())
+                print(f"  ✓ 成功建立設備: {node_name} (ID: {device.id})")
             # 更新設備狀態（跳過剛建立的節點；正確比對 pynetbox Status 物件）
             if node_name.lower() not in self._newly_created_nodes:
                 try:
@@ -832,12 +882,13 @@ class OptimizedPVEToNetBoxSync:
                     print(f"  更新設備硬體資訊失敗 {node_name}: {e}")
             # 同步網路介面
             try:
-                network_data = self.pve_api.nodes(node_name).network.get()
+                network_data = self.pve_api.nodes(pve_node_name).network.get()
                 if network_data:
-                    self.sync_node_network_interfaces(device, node_name, network_data)
+                    self.sync_node_network_interfaces(device, pve_node_name, network_data)
             except Exception as e:
                 print(f"  獲取節點網路資訊失敗: {e}")
-            devices[node_name.lower()] = device
+            # Always key by original PVE node name so VM sync can look up the device
+            devices[pve_node_name.lower()] = device
             success_count += 1
         print(f"  節點同步完成: {success_count}/{len(self.pve_cache['nodes'])} 個節點")
         if success_count > 0:
@@ -1182,7 +1233,7 @@ class OptimizedPVEToNetBoxSync:
         if self.enhanced_mode:
             self.detect_config_drift(int(vm_id), original_vm_name, vm_config, tag_names, network_interfaces)
             if not force and not self.should_sync_vm(int(vm_id), vm_config, tag_names, network_interfaces):
-                cached_vm = self.nb_cache['virtual_machines_by_serial'].get(vm_id)
+                cached_vm = self.nb_cache['virtual_machines_by_serial'].get(f"{vm_id}::{cluster['id']}")
                 if cached_vm is None:
                     # VM 在 NetBox 中不存在（例如隨節點被連帶刪除），
                     # 但 state_db 仍有舊 hash 導致增量跳過。強制往下完整同步。
@@ -1254,9 +1305,10 @@ class OptimizedPVEToNetBoxSync:
             }
         try:
             existing_vm = None
-            if vm_id in self.nb_cache['virtual_machines_by_serial']:
-                existing_vm = self.nb_cache['virtual_machines_by_serial'][vm_id]
-            else:
+            serial_key = f"{vm_id}::{cluster['id']}"
+            if serial_key in self.nb_cache['virtual_machines_by_serial']:
+                existing_vm = self.nb_cache['virtual_machines_by_serial'][serial_key]
+            if existing_vm is None:
                 key = f"{vm_name.lower()}::{cluster['id']}"
                 if key in self.nb_cache['virtual_machines_by_name']:
                     existing_vm = self.nb_cache['virtual_machines_by_name'][key]
@@ -1293,7 +1345,7 @@ class OptimizedPVEToNetBoxSync:
                     vm_data_dict['custom_fields'] = custom_fields
                 vm_obj = self.nb_api.virtualization.virtual_machines.create(**vm_data_dict)
                 self.nb_cache['virtual_machines'][vm_obj.id] = vm_obj
-                self.nb_cache['virtual_machines_by_serial'][vm_id] = vm_obj
+                self.nb_cache['virtual_machines_by_serial'][f"{vm_id}::{cluster['id']}"] = vm_obj
                 key = f"{vm_name.lower()}::{cluster['id']}"
                 self.nb_cache['virtual_machines_by_name'][key] = vm_obj
                 print(f"  建立虛擬機: {vm_name}")
