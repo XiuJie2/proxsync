@@ -16,8 +16,9 @@ class PVESyncEngine:
         stats = engine.stats
     """
 
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, job_id=None):
         self.config_path = config_path
+        self.job_id = job_id
         self._sync_instance = None
         self.stats = {}
 
@@ -40,7 +41,7 @@ class PVESyncEngine:
             config_module.init_config(self.config_path)
 
         # Run the sync
-        self._sync_instance = sync_module.OptimizedPVEToNetBoxSync()
+        self._sync_instance = sync_module.OptimizedPVEToNetBoxSync(job_id=self.job_id)
         self._sync_instance.sync()
 
         # Capture stats

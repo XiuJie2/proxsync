@@ -10,12 +10,13 @@ from virtualization.models import Cluster, ClusterType
 
 from .choices import (
     BackupStatusChoices,
+    DriftTypeChoices,
     SyncJobStatusChoices,
     SyncJobTriggerChoices,
     SyncScheduleChoices,
     WebhookEventChoices,
 )
-from .models import PbsServerConfig, PveClusterConfig, PvePluginSettings, PveSyncJob, PveWebhookEvent
+from .models import PbsServerConfig, PveClusterConfig, PveDriftEvent, PvePluginSettings, PveSyncJob, PveWebhookEvent
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +195,19 @@ class PbsServerConfigForm(NetBoxModelForm):
                 "PBS sync at the desired interval."
             ),
         }
+
+
+class PveDriftEventFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for drift event list views."""
+
+    model = PveDriftEvent
+
+    drift_type = forms.MultipleChoiceField(
+        choices=DriftTypeChoices.choices,
+        required=False,
+    )
+    cluster_name = forms.CharField(required=False, label="叢集名稱")
+    notified_telegram = forms.NullBooleanField(required=False, label="已通知 Telegram")
 
 
 class PbsServerConfigFilterForm(NetBoxModelFilterSetForm):

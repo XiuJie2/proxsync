@@ -32,11 +32,12 @@ except ImportError:
 class OptimizedPVEToNetBoxSync:
     """優化的 PVE 到 NetBox 同步器"""
 
-    def __init__(self):
+    def __init__(self, job_id=None):
         """初始化"""
         self.pve_api = None
         self.nb_api = None
         self.custom_fields_created = False
+        self.job_id = job_id
 
         self.stats = {
             'nodes_offline': 0,
@@ -1036,12 +1037,35 @@ class OptimizedPVEToNetBoxSync:
             return False, 0
 
     # ---------- 增量同步相關 ----------
+
+    def _write_drift_event(self, vm_name: str, vmid: int, drift_type: str,
+                           field_name: str, old_value: str, new_value: str,
+                           notified: bool = False):
+        """Write a PveDriftEvent record via Django ORM. No-op outside Django context."""
+        try:
+            from pve_sync_plugin.models import PveDriftEvent
+            kwargs = dict(
+                vm_name=vm_name,
+                vmid=vmid,
+                cluster_name=self.cluster_name,
+                drift_type=drift_type,
+                field_name=field_name,
+                old_value=str(old_value),
+                new_value=str(new_value),
+                notified_telegram=notified,
+            )
+            if self.job_id:
+                kwargs['sync_job_id'] = self.job_id
+            PveDriftEvent.objects.create(**kwargs)
+        except Exception as e:
+            print(f"  ⚠ 無法寫入漂移事件記錄: {e}")
+
     def detect_config_drift(self, vm_id: int, vm_name: str, vm_config: Dict[str, Any],
-                            current_tags: List[str], network_interfaces: List[Dict] = None) -> List[Dict]:
+                            current_tags: List[str], network_interfaces: List[Dict] = None,
+                            current_node: str = None) -> List[Dict]:
         if not self.enhanced_mode or not self.state_db:
             return []
         drifts = []
-        current_hash = compute_config_hash(vm_config, current_tags, network_interfaces)
         last_config = self.state_db.get_last_vm_config(vm_id, self.cluster_name)
         if not last_config:
             return drifts
@@ -1054,20 +1078,44 @@ class OptimizedPVEToNetBoxSync:
             drifts.append({'field': 'memory', 'old': old_memory, 'new': current_memory, 'unit': 'MB'})
         if current_vcpus != old_vcpus:
             drifts.append({'field': 'vcpus', 'old': old_vcpus, 'new': current_vcpus, 'unit': 'core'})
+
+        # VM 遷移偵測（節點變更）
+        old_node = last_config.get('node')
+        if old_node and current_node and old_node != current_node:
+            print(f"🚚 VM {vm_name} 遷移偵測: {old_node} → {current_node}")
+            self.stats['config_drifts_detected'] += 1
+            migration_msg = (
+                f"🚚 <b>VM 遷移偵測</b>\n\n"
+                f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+                f"🔀 叢集: {self.cluster_name}\n"
+                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"📤 來源節點: <code>{old_node}</code>\n"
+                f"📥 目標節點: <code>{current_node}</code>"
+            )
+            self.send_telegram_notification(migration_msg)
+            self._write_drift_event(vm_name, vm_id, 'migration', 'node', old_node, current_node, notified=True)
+
         if drifts:
             self.stats['config_drifts_detected'] += len(drifts)
-            print(f"🔄 VM {vm_name} 配置漂移: {len(drifts)} 處變更")
-            message = f"""
-🔄 <b>VM 配置變更檢測</b>
-
-🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})
-📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}
-
-"""
+            print(f"🔄 VM {vm_name} 硬體配置漂移: {len(drifts)} 處變更")
+            detail_lines = ""
             for drift in drifts:
-                message += f"• {drift['field']}: {drift['old']} → {drift['new']} {drift.get('unit', '')}\n"
-            message += "\n請確認為否為預期變更。"
-            self.send_telegram_notification(message)
+                detail_lines += f"• {drift['field']}: {drift['old']} → {drift['new']} {drift.get('unit', '')}\n"
+            hw_msg = (
+                f"🔄 <b>VM 硬體配置變更</b>\n\n"
+                f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+                f"🔀 叢集: {self.cluster_name}\n"
+                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"{detail_lines}\n請確認是否為預期變更。"
+            )
+            self.send_telegram_notification(hw_msg)
+            for drift in drifts:
+                self._write_drift_event(
+                    vm_name, vm_id, 'hardware', drift['field'],
+                    f"{drift['old']} {drift.get('unit', '')}".strip(),
+                    f"{drift['new']} {drift.get('unit', '')}".strip(),
+                    notified=True,
+                )
         return drifts
 
     def should_sync_vm(self, vm_id: int, vm_config: Dict[str, Any], tags: List[str],
@@ -1096,16 +1144,58 @@ class OptimizedPVEToNetBoxSync:
         old_tags = set(last_config.get('tags', []))
         new_tags = set(current_tags)
         added = new_tags - old_tags
+        removed = old_tags - new_tags
         for tag in added:
             changes.append({'type': 'added', 'tag': tag})
             self.stats['tag_changes'] += 1
             print(f"🏷️  VM {vm_name} 新增標籤: {tag}")
-        removed = old_tags - new_tags
+            self._write_drift_event(vm_name, vm_id, 'tag_change', 'tags', '', tag, notified=False)
         for tag in removed:
             changes.append({'type': 'removed', 'tag': tag})
             self.stats['tag_changes'] += 1
             print(f"🏷️  VM {vm_name} 移除標籤: {tag}")
+            self._write_drift_event(vm_name, vm_id, 'tag_change', 'tags', tag, '', notified=False)
+        if changes:
+            added_list = [c['tag'] for c in changes if c['type'] == 'added']
+            removed_list = [c['tag'] for c in changes if c['type'] == 'removed']
+            detail = ""
+            if added_list:
+                detail += f"➕ 新增標籤: <code>{', '.join(added_list)}</code>\n"
+            if removed_list:
+                detail += f"➖ 移除標籤: <code>{', '.join(removed_list)}</code>\n"
+            tag_msg = (
+                f"🏷️ <b>VM 標籤變更</b>\n\n"
+                f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+                f"🔀 叢集: {self.cluster_name}\n"
+                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"{detail}\n請確認是否為預期變更。"
+            )
+            self.send_telegram_notification(tag_msg)
         return changes
+
+    def detect_ip_change(self, vm_id: int, vm_name: str, current_ip: str):
+        """Compare current primary IP to state_db snapshot; notify and record if changed."""
+        if not self.enhanced_mode or not self.state_db:
+            return
+        last_config = self.state_db.get_last_vm_config(vm_id, self.cluster_name)
+        if not last_config:
+            return
+        old_ip = last_config.get('primary_ip') or ''
+        if not old_ip or old_ip == current_ip:
+            return
+        print(f"🌐 VM {vm_name} IP 變更: {old_ip} → {current_ip}")
+        self.stats['config_drifts_detected'] += 1
+        ip_msg = (
+            f"🌐 <b>VM IP 位址變更</b>\n\n"
+            f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+            f"🔀 叢集: {self.cluster_name}\n"
+            f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"🔄 舊 IP: <code>{old_ip}</code>\n"
+            f"🔄 新 IP: <code>{current_ip}</code>\n\n"
+            f"請確認是否為預期變更。"
+        )
+        self.send_telegram_notification(ip_msg)
+        self._write_drift_event(vm_name, vm_id, 'ip_change', 'primary_ip', old_ip, current_ip, notified=True)
 
     # ---------- 虛擬機處理主邏輯 ----------
     def process_virtual_machine(self, vm_data: Dict, device, cluster: Dict, force: bool = False) -> bool:
@@ -1231,7 +1321,8 @@ class OptimizedPVEToNetBoxSync:
                     'gateway': ''
                 })
         if self.enhanced_mode:
-            self.detect_config_drift(int(vm_id), original_vm_name, vm_config, tag_names, network_interfaces)
+            self.detect_config_drift(int(vm_id), original_vm_name, vm_config, tag_names,
+                                     network_interfaces, current_node=node_name)
             if not force and not self.should_sync_vm(int(vm_id), vm_config, tag_names, network_interfaces):
                 cached_vm = self.nb_cache['virtual_machines_by_serial'].get(f"{vm_id}::{cluster['id']}")
                 if cached_vm is None:
@@ -1261,9 +1352,11 @@ class OptimizedPVEToNetBoxSync:
                         config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
                         memory = int(vm_config.get('memory', 0))
                         vcpus_save = int(vm_config.get('vcpus', vcpus))
+                        cur_ip = getattr(getattr(cached_vm, 'primary_ip4', None), 'address', None) or ''
                         self.state_db.save_vm_config_snapshot(
                             vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
-                            memory=memory, vcpus=vcpus_save, tags=tag_names
+                            memory=memory, vcpus=vcpus_save, tags=tag_names,
+                            node=node_name, primary_ip=cur_ip,
                         )
                     return True
                 # cached_vm is None → 繼續往下完整建立此 VM
@@ -1354,12 +1447,16 @@ class OptimizedPVEToNetBoxSync:
                 vm_obj, vm_config, agent_interfaces, mac_to_interface, device
             )
             disk_count, disk_size = self.process_vm_disks(vm_obj, vm_config)
+            primary_ip_str = ''
             if primary_ip:
                 try:
                     vm_obj.primary_ip4 = primary_ip.id
                     vm_obj.save()
+                    primary_ip_str = getattr(primary_ip, 'address', '') or ''
                 except Exception as e:
                     print(f"  設定 VM 主 IP 失敗: {e}")
+            if self.enhanced_mode and primary_ip_str:
+                self.detect_ip_change(int(vm_id), original_vm_name, primary_ip_str)
             print(f"  標籤: {len(tag_ids)}個, 介面: {interface_count}個, 磁碟: {disk_count}個, 大小: {disk_size}MB")
             if self.enhanced_mode and self.state_db:
                 config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
@@ -1367,7 +1464,8 @@ class OptimizedPVEToNetBoxSync:
                 vcpus_save = int(vm_config.get('vcpus', vcpus))
                 self.state_db.save_vm_config_snapshot(
                     vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
-                    memory=memory, vcpus=vcpus_save, tags=tag_names
+                    memory=memory, vcpus=vcpus_save, tags=tag_names,
+                    node=node_name, primary_ip=primary_ip_str,
                 )
             return True
         except Exception as e:

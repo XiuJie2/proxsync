@@ -8,6 +8,7 @@ from .models import (
     PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
+    PveDriftEvent,
     PveSyncJob,
     PveWebhookEvent,
 )
@@ -184,6 +185,56 @@ class PbsServerConfigTable(NetBoxTable):
             "netbox_site",
             "last_sync",
             "last_sync_status",
+        )
+
+
+# ---------------------------------------------------------------------------
+# PveDriftEvent
+# ---------------------------------------------------------------------------
+
+class PveDriftEventTable(NetBoxTable):
+    """Table for VM configuration drift events."""
+
+    id = tables.Column(linkify=True)
+    vm_name = tables.Column(verbose_name="VM 名稱")
+    vmid = tables.Column(verbose_name="VM ID")
+    cluster_name = tables.Column(verbose_name="叢集")
+    drift_type = columns.ChoiceFieldColumn(verbose_name="變更類型")
+    field_name = tables.Column(verbose_name="欄位")
+    old_value = tables.Column(verbose_name="舊值")
+    new_value = tables.Column(verbose_name="新值")
+    notified_telegram = columns.BooleanColumn(verbose_name="已通知")
+    created = columns.DateTimeColumn(verbose_name="偵測時間")
+    sync_job = tables.Column(linkify=True, verbose_name="同步任務")
+    actions = columns.ActionsColumn(actions=("delete",))
+
+    class Meta(NetBoxTable.Meta):
+        model = PveDriftEvent
+        fields = (
+            "pk",
+            "id",
+            "vm_name",
+            "vmid",
+            "cluster_name",
+            "drift_type",
+            "field_name",
+            "old_value",
+            "new_value",
+            "notified_telegram",
+            "created",
+            "sync_job",
+        )
+        default_columns = (
+            "id",
+            "vm_name",
+            "vmid",
+            "cluster_name",
+            "drift_type",
+            "field_name",
+            "old_value",
+            "new_value",
+            "notified_telegram",
+            "created",
         )
 
 

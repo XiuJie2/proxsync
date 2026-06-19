@@ -23,6 +23,7 @@ from .filtersets import (
     PbsServerConfigFilterSet,
     PveBackupStatusFilterSet,
     PveClusterConfigFilterSet,
+    PveDriftEventFilterSet,
     PveSyncJobFilterSet,
     PveWebhookEventFilterSet,
 )
@@ -31,6 +32,7 @@ from .forms import (
     PbsServerConfigForm,
     PveClusterConfigFilterForm,
     PveClusterConfigForm,
+    PveDriftEventFilterForm,
     PvePluginSettingsForm,
     PveSyncJobFilterForm,
     PveWebhookEventFilterForm,
@@ -39,6 +41,7 @@ from .models import (
     PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
+    PveDriftEvent,
     PvePluginSettings,
     PveSyncJob,
     PveWebhookEvent,
@@ -47,6 +50,7 @@ from .tables import (
     PbsServerConfigTable,
     PveBackupStatusTable,
     PveClusterConfigTable,
+    PveDriftEventTable,
     PveSyncJobTable,
     PveWebhookEventTable,
 )
@@ -298,6 +302,31 @@ class PveBackupStatusListView(generic.ObjectListView):
 class PveBackupStatusView(generic.ObjectView):
     queryset = PveBackupStatus.objects.all()
     template_name = "pve_sync/pvebackupstatus.html"
+
+
+# ============================================================================
+# PveDriftEvent
+# ============================================================================
+
+class PveDriftEventListView(generic.ObjectListView):
+    queryset = PveDriftEvent.objects.select_related("sync_job")
+    table = PveDriftEventTable
+    filterset = PveDriftEventFilterSet
+    filterset_form = PveDriftEventFilterForm
+
+
+class PveDriftEventView(generic.ObjectView):
+    queryset = PveDriftEvent.objects.select_related("sync_job")
+    template_name = "pve_sync/pvedriftevent.html"
+
+
+class PveDriftEventDeleteView(generic.ObjectDeleteView):
+    queryset = PveDriftEvent.objects.all()
+
+
+class PveDriftEventBulkDeleteView(generic.BulkDeleteView):
+    queryset = PveDriftEvent.objects.all()
+    table = PveDriftEventTable
 
 
 # ============================================================================

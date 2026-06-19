@@ -86,7 +86,7 @@ def run_sync_job(job_id):
 
         config_path = write_runtime_config_file(job.cluster_name)
 
-        engine = PVESyncEngine(config_path=config_path)
+        engine = PVESyncEngine(config_path=config_path, job_id=job.id)
         stats = engine.run()
 
         job.refresh_from_db()

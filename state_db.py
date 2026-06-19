@@ -97,6 +97,13 @@ class StateDB:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_node_status_time ON node_status_history(sync_time)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_log_cluster ON sync_log(cluster_name)")
 
+            # Add columns introduced in later versions (safe to re-run on existing DBs)
+            for col_def in ("node TEXT", "primary_ip TEXT"):
+                try:
+                    conn.execute(f"ALTER TABLE vm_config_history ADD COLUMN {col_def}")
+                except Exception:
+                    pass  # column already exists
+
             conn.commit()
 
     # ========== Sync State 管理 ==========
@@ -137,15 +144,16 @@ class StateDB:
     # ========== VM 配置历史 ==========
 
     def save_vm_config_snapshot(self, vm_id: int, cluster_name: str, config_hash: str,
-                                memory: int, vcpus: int, tags: List[str]):
+                                memory: int, vcpus: int, tags: List[str],
+                                node: str = None, primary_ip: str = None):
         """保存 VM 配置快照"""
         with self._lock:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
                     INSERT INTO vm_config_history
-                    (vm_id, cluster_name, config_hash, memory, vcpus, tags_json)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (vm_id, cluster_name, config_hash, memory, vcpus, tags_json, node, primary_ip)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         vm_id,
@@ -153,7 +161,9 @@ class StateDB:
                         config_hash,
                         memory,
                         vcpus,
-                        json.dumps(tags) if tags else "[]"
+                        json.dumps(tags) if tags else "[]",
+                        node,
+                        primary_ip,
                     )
                 )
                 conn.commit()
@@ -164,7 +174,7 @@ class StateDB:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
                     """
-                    SELECT config_hash, memory, vcpus, tags_json, sync_time
+                    SELECT config_hash, memory, vcpus, tags_json, sync_time, node, primary_ip
                     FROM vm_config_history
                     WHERE vm_id = ? AND cluster_name = ?
                     ORDER BY sync_time DESC LIMIT 1
@@ -178,7 +188,9 @@ class StateDB:
                         'memory': row[1],
                         'vcpus': row[2],
                         'tags': json.loads(row[3]) if row[3] else [],
-                        'sync_time': row[4]
+                        'sync_time': row[4],
+                        'node': row[5],
+                        'primary_ip': row[6],
                     }
                 return None
 

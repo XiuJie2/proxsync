@@ -28,6 +28,11 @@ events_item = PluginMenuItem(
     link_text="Webhook Events",
 )
 
+drift_events_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:pvedriftevent_list",
+    link_text="Drift Events",
+)
+
 clusters_item = PluginMenuItem(
     link="plugins:pve_sync_plugin:pveclusterconfig_list",
     link_text="PVE Clusters",
@@ -74,7 +79,7 @@ menu = PluginMenu(
         ),
         (
             "Sync & Operations",
-            (jobs_item, events_item),
+            (jobs_item, events_item, drift_events_item),
         ),
         (
             "Data Protection",

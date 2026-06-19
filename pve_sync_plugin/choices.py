@@ -43,3 +43,10 @@ class SyncScheduleChoices(models.TextChoices):
     EVERY_6H = "every_6h", "Every 6 hours"
     DAILY = "daily", "Daily"
     WEEKLY = "weekly", "Weekly"
+
+
+class DriftTypeChoices(models.TextChoices):
+    HARDWARE = "hardware", "硬體配置變更"
+    MIGRATION = "migration", "VM 遷移"
+    IP_CHANGE = "ip_change", "IP 位址變更"
+    TAG_CHANGE = "tag_change", "標籤變更"

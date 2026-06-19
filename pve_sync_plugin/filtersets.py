@@ -6,6 +6,7 @@ from netbox.filtersets import NetBoxModelFilterSet
 
 from .choices import (
     BackupStatusChoices,
+    DriftTypeChoices,
     SyncJobStatusChoices,
     SyncJobTriggerChoices,
     SyncScheduleChoices,
@@ -15,6 +16,7 @@ from .models import (
     PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
+    PveDriftEvent,
     PveSyncJob,
     PveWebhookEvent,
 )
@@ -98,6 +100,24 @@ class PbsServerConfigFilterSet(NetBoxModelFilterSet):
         return queryset.filter(name__icontains=value) | queryset.filter(
             description__icontains=value
         )
+
+
+class PveDriftEventFilterSet(NetBoxModelFilterSet):
+    """Filter drift events by type, VM name, cluster, and notification state."""
+
+    drift_type = django_filters.MultipleChoiceFilter(choices=DriftTypeChoices.choices)
+    vm_name = django_filters.CharFilter(lookup_expr="icontains")
+    cluster_name = django_filters.CharFilter(lookup_expr="icontains")
+    notified_telegram = django_filters.BooleanFilter()
+
+    class Meta:
+        model = PveDriftEvent
+        fields = ["id", "drift_type", "vmid", "cluster_name", "notified_telegram"]
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(vm_name__icontains=value) | queryset.filter(cluster_name__icontains=value)
 
 
 class PveBackupStatusFilterSet(NetBoxModelFilterSet):

@@ -10,7 +10,7 @@ from django.urls import path
 from netbox.views.generic import ObjectChangeLogView
 
 from . import views
-from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveSyncJob, PveWebhookEvent
+from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveWebhookEvent
 
 app_name = "pve_sync_plugin"
 
@@ -162,6 +162,18 @@ urlpatterns = [
         ObjectChangeLogView.as_view(),
         name="pbsserverconfig_changelog",
         kwargs={"model": PbsServerConfig},
+    ),
+
+    # --- PveDriftEvent ---
+    path("drift/", views.PveDriftEventListView.as_view(), name="pvedriftevent_list"),
+    path("drift/<int:pk>/", views.PveDriftEventView.as_view(), name="pvedriftevent"),
+    path("drift/<int:pk>/delete/", views.PveDriftEventDeleteView.as_view(), name="pvedriftevent_delete"),
+    path("drift/delete/", views.PveDriftEventBulkDeleteView.as_view(), name="pvedriftevent_bulk_delete"),
+    path(
+        "drift/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="pvedriftevent_changelog",
+        kwargs={"model": PveDriftEvent},
     ),
 
     # Webhook receiver (external, no auth, HMAC-verified)

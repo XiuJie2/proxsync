@@ -8,6 +8,7 @@ from netbox.models import NetBoxModel
 
 from .choices import (
     BackupStatusChoices,
+    DriftTypeChoices,
     SyncJobStatusChoices,
     SyncJobTriggerChoices,
     SyncScheduleChoices,
@@ -188,6 +189,51 @@ class PveBackupStatus(NetBoxModel):
         if not self.last_backup:
             return True
         return self.backup_age_days > 7
+
+
+class PveDriftEvent(NetBoxModel):
+    """Records a single configuration drift event detected during sync."""
+
+    vm_name = models.CharField(max_length=200)
+    vmid = models.IntegerField()
+    cluster_name = models.CharField(max_length=100)
+    drift_type = models.CharField(max_length=30, choices=DriftTypeChoices)
+    field_name = models.CharField(max_length=100, verbose_name="欄位")
+    old_value = models.TextField(blank=True, verbose_name="舊值")
+    new_value = models.TextField(blank=True, verbose_name="新值")
+    sync_job = models.ForeignKey(
+        "PveSyncJob",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="drift_events",
+    )
+    notified_telegram = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created"]
+        indexes = [
+            models.Index(fields=["vmid", "cluster_name"]),
+            models.Index(fields=["drift_type"]),
+            models.Index(fields=["created"]),
+        ]
+        verbose_name = "VM Drift Event"
+        verbose_name_plural = "VM Drift Events"
+
+    def __str__(self):
+        return f"{self.vm_name} [{self.get_drift_type_display()}] {self.field_name}: {self.old_value} → {self.new_value}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:pve_sync_plugin:pvedriftevent", args=[self.pk])
+
+    @property
+    def drift_type_badge(self):
+        return {
+            "hardware": "warning",
+            "migration": "info",
+            "ip_change": "primary",
+            "tag_change": "secondary",
+        }.get(self.drift_type, "secondary")
 
 
 class PvePluginSettings(NetBoxModel):

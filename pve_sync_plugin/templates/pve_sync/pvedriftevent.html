@@ -1,0 +1,89 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">VM 變更資訊</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">VM 名稱</th>
+          <td><strong>{{ object.vm_name }}</strong></td>
+        </tr>
+        <tr>
+          <th scope="row">VM ID</th>
+          <td><code>{{ object.vmid }}</code></td>
+        </tr>
+        <tr>
+          <th scope="row">叢集</th>
+          <td>{{ object.cluster_name }}</td>
+        </tr>
+        <tr>
+          <th scope="row">變更類型</th>
+          <td>
+            <span class="badge text-bg-{{ object.drift_type_badge }}">
+              {{ object.get_drift_type_display }}
+            </span>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">偵測時間</th>
+          <td>{{ object.created|date:"Y-m-d H:i:s" }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">變更內容</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">欄位</th>
+          <td><code>{{ object.field_name }}</code></td>
+        </tr>
+        <tr>
+          <th scope="row">舊值</th>
+          <td>
+            {% if object.old_value %}
+              <span class="text-danger"><code>{{ object.old_value }}</code></span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">新值</th>
+          <td>
+            {% if object.new_value %}
+              <span class="text-success"><code>{{ object.new_value }}</code></span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">Telegram 通知</th>
+          <td>
+            {% if object.notified_telegram %}
+              <span class="badge text-bg-success">已發送</span>
+            {% else %}
+              <span class="badge text-bg-secondary">未發送</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">關聯同步任務</th>
+          <td>
+            {% if object.sync_job %}
+              <a href="{{ object.sync_job.get_absolute_url }}">#{{ object.sync_job.id }} ({{ object.sync_job.cluster_name }})</a>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
