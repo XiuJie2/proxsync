@@ -52,3 +52,6 @@ class DriftTypeChoices(models.TextChoices):
     TAG_CHANGE = "tag_change", "標籤變更"
     VM_CREATED = "vm_created", "VM 新增"
     VM_DELETED = "vm_deleted", "VM 刪除"
+    VM_RENAMED = "vm_renamed", "VM 更名"
+    DISK_CHANGE = "disk_change", "磁碟配置變更"
+    DESCRIPTION_CHANGE = "description_change", "描述變更"

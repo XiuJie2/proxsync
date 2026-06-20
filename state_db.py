@@ -98,7 +98,8 @@ class StateDB:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_log_cluster ON sync_log(cluster_name)")
 
             # Add columns introduced in later versions (safe to re-run on existing DBs)
-            for col_def in ("node TEXT", "primary_ip TEXT", "vm_name TEXT"):
+            for col_def in ("node TEXT", "primary_ip TEXT", "vm_name TEXT",
+                            "description TEXT", "disk_summary TEXT"):
                 try:
                     conn.execute(f"ALTER TABLE vm_config_history ADD COLUMN {col_def}")
                 except Exception:
@@ -146,15 +147,17 @@ class StateDB:
     def save_vm_config_snapshot(self, vm_id: int, cluster_name: str, config_hash: str,
                                 memory: int, vcpus: int, tags: List[str],
                                 node: str = None, primary_ip: str = None,
-                                vm_name: str = None):
+                                vm_name: str = None, description: str = None,
+                                disk_summary: str = None):
         """保存 VM 配置快照"""
         with self._lock:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
                     INSERT INTO vm_config_history
-                    (vm_id, cluster_name, config_hash, memory, vcpus, tags_json, node, primary_ip, vm_name)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (vm_id, cluster_name, config_hash, memory, vcpus, tags_json,
+                     node, primary_ip, vm_name, description, disk_summary)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         vm_id,
@@ -166,6 +169,8 @@ class StateDB:
                         node,
                         primary_ip,
                         vm_name,
+                        description,
+                        disk_summary,
                     )
                 )
                 conn.commit()
@@ -176,7 +181,8 @@ class StateDB:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
                     """
-                    SELECT config_hash, memory, vcpus, tags_json, sync_time, node, primary_ip, vm_name
+                    SELECT config_hash, memory, vcpus, tags_json, sync_time,
+                           node, primary_ip, vm_name, description, disk_summary
                     FROM vm_config_history
                     WHERE vm_id = ? AND cluster_name = ?
                     ORDER BY sync_time DESC LIMIT 1
@@ -194,6 +200,8 @@ class StateDB:
                         'node': row[5],
                         'primary_ip': row[6],
                         'vm_name': row[7],
+                        'description': row[8],
+                        'disk_summary': json.loads(row[9]) if row[9] else {},
                     }
                 return None
 

@@ -1039,6 +1039,17 @@ class OptimizedPVEToNetBoxSync:
 
     # ---------- 增量同步相關 ----------
 
+    def _parse_disk_summary(self, vm_config: Dict[str, Any]) -> Dict[str, str]:
+        """從 vm_config 提取磁碟 key → size 對應表。"""
+        import re
+        disks = {}
+        for key, value in vm_config.items():
+            if key.startswith(('scsi', 'virtio', 'ide', 'sata', 'efidisk', 'tpmstate')):
+                val_str = str(value)
+                m = re.search(r'size=([^,]+)', val_str)
+                disks[key] = m.group(1) if m else val_str[:80]
+        return disks
+
     def _write_drift_event(self, vm_name: str, vmid: int, drift_type: str,
                            field_name: str, old_value: str, new_value: str,
                            notified: bool = False):
@@ -1135,6 +1146,21 @@ class OptimizedPVEToNetBoxSync:
         if current_vcpus != old_vcpus:
             drifts.append({'field': 'vcpus', 'old': old_vcpus, 'new': current_vcpus, 'unit': 'core'})
 
+        # VM 更名偵測
+        old_name = last_config.get('vm_name')
+        if old_name and old_name != vm_name:
+            print(f"✏️  VM 更名偵測: {old_name} → {vm_name} (ID: {vm_id})")
+            self.stats['config_drifts_detected'] += 1
+            rename_msg = (
+                f"✏️ <b>VM 更名偵測</b>\n\n"
+                f"🖥️ 原名稱: <b>{old_name}</b> → <b>{vm_name}</b>\n"
+                f"🔢 ID: {vm_id}\n"
+                f"🔀 叢集: {self.cluster_name}\n"
+                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            self.send_telegram_notification(rename_msg)
+            self._write_drift_event(vm_name, vm_id, 'vm_renamed', 'name', old_name, vm_name, notified=True)
+
         # VM 遷移偵測（節點變更）
         old_node = last_config.get('node')
         if old_node and current_node and old_node != current_node:
@@ -1150,6 +1176,60 @@ class OptimizedPVEToNetBoxSync:
             )
             self.send_telegram_notification(migration_msg)
             self._write_drift_event(vm_name, vm_id, 'migration', 'node', old_node, current_node, notified=True)
+
+        # 磁碟配置變更偵測
+        current_disks = self._parse_disk_summary(vm_config)
+        old_disks = last_config.get('disk_summary') or {}
+        if old_disks:  # 只在有先前記錄時比對
+            added_disks = {k: v for k, v in current_disks.items() if k not in old_disks}
+            removed_disks = {k: v for k, v in old_disks.items() if k not in current_disks}
+            resized_disks = {
+                k: (old_disks[k], current_disks[k])
+                for k in current_disks
+                if k in old_disks and old_disks[k] != current_disks[k]
+            }
+            if added_disks or removed_disks or resized_disks:
+                self.stats['config_drifts_detected'] += 1
+                detail = ""
+                for k, v in added_disks.items():
+                    detail += f"➕ 新增磁碟: <code>{k}</code> ({v})\n"
+                for k, v in removed_disks.items():
+                    detail += f"➖ 移除磁碟: <code>{k}</code> (原 {v})\n"
+                for k, (old_v, new_v) in resized_disks.items():
+                    detail += f"🔄 磁碟調整: <code>{k}</code>  {old_v} → {new_v}\n"
+                print(f"💾 VM {vm_name} 磁碟配置變更")
+                disk_msg = (
+                    f"💾 <b>VM 磁碟配置變更</b>\n\n"
+                    f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+                    f"🔀 叢集: {self.cluster_name}\n"
+                    f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    f"{detail}"
+                )
+                self.send_telegram_notification(disk_msg)
+                for k, v in added_disks.items():
+                    self._write_drift_event(vm_name, vm_id, 'disk_change', k, '', v, notified=True)
+                for k, v in removed_disks.items():
+                    self._write_drift_event(vm_name, vm_id, 'disk_change', k, v, '', notified=True)
+                for k, (old_v, new_v) in resized_disks.items():
+                    self._write_drift_event(vm_name, vm_id, 'disk_change', k, old_v, new_v, notified=True)
+
+        # VM 描述變更偵測
+        current_desc = (vm_config.get('description') or '').strip()[:500]
+        old_desc = (last_config.get('description') or '').strip()
+        if old_desc and old_desc != current_desc:
+            self.stats['config_drifts_detected'] += 1
+            print(f"📝 VM {vm_name} 描述變更")
+            desc_preview = current_desc[:100] + ('…' if len(current_desc) > 100 else '')
+            desc_msg = (
+                f"📝 <b>VM 描述變更</b>\n\n"
+                f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+                f"🔀 叢集: {self.cluster_name}\n"
+                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"📄 新描述: <code>{desc_preview}</code>"
+            )
+            self.send_telegram_notification(desc_msg)
+            self._write_drift_event(vm_name, vm_id, 'description_change', 'description',
+                                    old_desc[:200], current_desc[:200], notified=True)
 
         if drifts:
             self.stats['config_drifts_detected'] += len(drifts)
@@ -1415,6 +1495,8 @@ class OptimizedPVEToNetBoxSync:
                             vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
                             memory=memory, vcpus=vcpus_save, tags=tag_names,
                             node=node_name, primary_ip=cur_ip, vm_name=original_vm_name,
+                            description=(vm_config.get('description') or '')[:500],
+                            disk_summary=json.dumps(self._parse_disk_summary(vm_config)),
                         )
                     return True
                 # cached_vm is None → 繼續往下完整建立此 VM
@@ -1524,6 +1606,8 @@ class OptimizedPVEToNetBoxSync:
                     vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
                     memory=memory, vcpus=vcpus_save, tags=tag_names,
                     node=node_name, primary_ip=primary_ip_str, vm_name=original_vm_name,
+                    description=(vm_config.get('description') or '')[:500],
+                    disk_summary=json.dumps(self._parse_disk_summary(vm_config)),
                 )
             return True
         except Exception as e:
