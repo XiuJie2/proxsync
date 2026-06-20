@@ -921,7 +921,36 @@ class OptimizedPVEToNetBoxSync:
             pass
         return {}, {}
 
-    # ---------- VM 介面處理（修復橋接ID） ----------
+    # ---------- MAC 位址設定（NetBox 4.6+ 使用獨立 MACAddress 物件） ----------
+    def set_vm_interface_mac(self, vm_interface, mac_address: str):
+        """Create/update a dcim.MACAddress for the VMInterface and set it as primary."""
+        mac_lower = mac_address.lower()
+        existing_mac = self.nb_cache['mac_addresses'].get(mac_lower)
+        if existing_mac:
+            # Already exists — ensure it's assigned to this interface and set as primary
+            needs_save = False
+            if getattr(existing_mac, 'assigned_object_id', None) != vm_interface.id:
+                existing_mac.assigned_object_type = 'virtualization.vminterface'
+                existing_mac.assigned_object_id = vm_interface.id
+                existing_mac.save()
+            # Set primary_mac_address on the interface if not already set
+            current_primary = getattr(vm_interface, 'primary_mac_address', None)
+            if not current_primary or (hasattr(current_primary, 'id') and current_primary.id != existing_mac.id):
+                vm_interface.primary_mac_address = existing_mac.id
+                vm_interface.save()
+        else:
+            # Create new MACAddress assigned to this VMInterface
+            mac_obj = self.nb_api.dcim.mac_addresses.create(
+                mac_address=mac_address,
+                assigned_object_type='virtualization.vminterface',
+                assigned_object_id=vm_interface.id,
+            )
+            self.nb_cache['mac_addresses'][mac_lower] = mac_obj
+            # Set it as primary
+            vm_interface.primary_mac_address = mac_obj.id
+            vm_interface.save()
+
+    # ---------- VM 介面處理 ----------
     def process_vm_interfaces(self, vm, vm_config: Dict, agent_interfaces: Dict, mac_to_interface: Dict,
                               device) -> Tuple[int, Optional[Any], List[Dict]]:
         interface_count = 0
@@ -940,33 +969,27 @@ class OptimizedPVEToNetBoxSync:
                         break
                 vm_interfaces = self.nb_cache['vm_interfaces'].get(vm.id, {})
                 bridge_name = config.get('bridge', '')
-                bridge_iface_id = None
+                # Create the bridge interface on the node device so it's visible in the node's interface list.
+                # VMInterface.bridge is a self-referential FK (VMInterface→VMInterface) so we must NOT
+                # pass the dcim.Interface id here — just create the node bridge and leave VM bridge unset.
                 if bridge_name:
-                    # 獲取或建立設備上的 bridge 介面（而非底層連接埠）
-                    bridge_iface = self.get_or_create_device_interface(
+                    self.get_or_create_device_interface(
                         device.id, bridge_name, iface_type='bridge', mac_address=None, enabled=True
                     )
-                    if bridge_iface:
-                        bridge_iface_id = bridge_iface.id
-                    else:
-                        print(f"      警告: 無法獲取設備 {device.name} 的橋接介面 {bridge_name}")
                 if config_key in vm_interfaces:
                     vm_interface = vm_interfaces[config_key]
                     if mac_address:
-                        vm_interface.mac_address = mac_address
-                    if bridge_iface_id:
-                        vm_interface.bridge = bridge_iface_id
-                    vm_interface.save()
+                        self.set_vm_interface_mac(vm_interface, mac_address)
+                    else:
+                        vm_interface.save()
                 else:
                     iface_create_data = {
                         'virtual_machine': vm.id, 'name': config_key, 'enabled': True
                     }
-                    if mac_address:
-                        iface_create_data['mac_address'] = mac_address
-                    if bridge_iface_id:
-                        iface_create_data['bridge'] = bridge_iface_id
                     vm_interface = self.nb_api.virtualization.interfaces.create(**iface_create_data)
                     self.nb_cache['vm_interfaces'].setdefault(vm.id, {})[config_key] = vm_interface
+                    if mac_address:
+                        self.set_vm_interface_mac(vm_interface, mac_address)
                 iface_data = {
                     'name': config_key, 'mac_address': mac_address or '', 'bridge': bridge_name
                 }
