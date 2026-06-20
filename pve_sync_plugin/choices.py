@@ -50,3 +50,5 @@ class DriftTypeChoices(models.TextChoices):
     MIGRATION = "migration", "VM 遷移"
     IP_CHANGE = "ip_change", "IP 位址變更"
     TAG_CHANGE = "tag_change", "標籤變更"
+    VM_CREATED = "vm_created", "VM 新增"
+    VM_DELETED = "vm_deleted", "VM 刪除"

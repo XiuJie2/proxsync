@@ -233,6 +233,8 @@ class PveDriftEvent(NetBoxModel):
             "migration": "info",
             "ip_change": "primary",
             "tag_change": "secondary",
+            "vm_created": "success",
+            "vm_deleted": "danger",
         }.get(self.drift_type, "secondary")
 
 

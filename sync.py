@@ -56,6 +56,7 @@ class OptimizedPVEToNetBoxSync:
         self.monitoring_config = {}
         self.sync_config = {}
         self._newly_created_nodes: set = set()
+        self._known_vmids: dict = {}  # populated at start of sync_pve_virtual_machines
 
         if self.enhanced_mode:
             try:
@@ -1060,6 +1061,61 @@ class OptimizedPVEToNetBoxSync:
         except Exception as e:
             print(f"  ⚠ 無法寫入漂移事件記錄: {e}")
 
+    def detect_new_vm(self, vm_id: int, vm_name: str, node_name: str):
+        """若此 vmid 在先前同步中不存在（但叢集有先前記錄），視為新增 VM。"""
+        if not self.enhanced_mode or not self.state_db:
+            return
+        if not self._known_vmids:
+            return  # 首次同步，無先前記錄，不觸發
+        if self.state_db.get_last_vm_config(vm_id, self.cluster_name):
+            return  # 已有記錄，不是新增
+        print(f"🆕 VM {vm_name} 新增偵測 (ID: {vm_id}, 節點: {node_name})")
+        self.stats['config_drifts_detected'] += 1
+        new_msg = (
+            f"🆕 <b>VM 新增偵測</b>\n\n"
+            f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+            f"🔀 叢集: {self.cluster_name}\n"
+            f"📌 節點: <code>{node_name}</code>\n"
+            f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        self.send_telegram_notification(new_msg)
+        self._write_drift_event(vm_name, vm_id, 'vm_created', 'vmid', '', str(vm_id), notified=True)
+
+    def detect_deleted_vms(self, seen_vmids: set):
+        """比對先前已知 vmid 與本次同步的 vmid，偵測被刪除的 VM。"""
+        if not self.enhanced_mode or not self.state_db:
+            return
+        if not self._known_vmids:
+            return
+        deleted_vmids = set(self._known_vmids.keys()) - seen_vmids
+        if not deleted_vmids:
+            return
+        for vmid in deleted_vmids:
+            info = self._known_vmids[vmid]
+            vm_name = info.get('vm_name') or f"VM-{vmid}"
+            node_name = info.get('node') or 'unknown'
+            # 避免重複通知：若已有此 vmid 的 vm_deleted 記錄則跳過
+            try:
+                from pve_sync_plugin.models import PveDriftEvent
+                if PveDriftEvent.objects.filter(
+                    vmid=vmid, cluster_name=self.cluster_name, drift_type='vm_deleted'
+                ).exists():
+                    continue
+            except Exception:
+                pass
+            print(f"🗑️ VM {vm_name} 刪除偵測 (ID: {vmid}, 上次節點: {node_name})")
+            self.stats['config_drifts_detected'] += 1
+            del_msg = (
+                f"🗑️ <b>VM 刪除偵測</b>\n\n"
+                f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vmid})\n"
+                f"🔀 叢集: {self.cluster_name}\n"
+                f"📌 上次節點: <code>{node_name}</code>\n"
+                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"⚠️ 此 VM 已從 Proxmox 中移除。"
+            )
+            self.send_telegram_notification(del_msg)
+            self._write_drift_event(vm_name, vmid, 'vm_deleted', 'vmid', str(vmid), '', notified=True)
+
     def detect_config_drift(self, vm_id: int, vm_name: str, vm_config: Dict[str, Any],
                             current_tags: List[str], network_interfaces: List[Dict] = None,
                             current_node: str = None) -> List[Dict]:
@@ -1238,6 +1294,8 @@ class OptimizedPVEToNetBoxSync:
                             tag_ids.append(tag.id)
                         except Exception as e:
                             print(f"  建立標籤失敗 {tag_name}: {e}")
+        if self.enhanced_mode:
+            self.detect_new_vm(int(vm_id), original_vm_name, node_name)
         if self.enhanced_mode and tag_names:
             self.detect_tag_changes(int(vm_id), original_vm_name, tag_names)
         vm_status = vm_data.get('status', '')
@@ -1356,7 +1414,7 @@ class OptimizedPVEToNetBoxSync:
                         self.state_db.save_vm_config_snapshot(
                             vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
                             memory=memory, vcpus=vcpus_save, tags=tag_names,
-                            node=node_name, primary_ip=cur_ip,
+                            node=node_name, primary_ip=cur_ip, vm_name=original_vm_name,
                         )
                     return True
                 # cached_vm is None → 繼續往下完整建立此 VM
@@ -1465,7 +1523,7 @@ class OptimizedPVEToNetBoxSync:
                 self.state_db.save_vm_config_snapshot(
                     vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
                     memory=memory, vcpus=vcpus_save, tags=tag_names,
-                    node=node_name, primary_ip=primary_ip_str,
+                    node=node_name, primary_ip=primary_ip_str, vm_name=original_vm_name,
                 )
             return True
         except Exception as e:
@@ -1478,6 +1536,10 @@ class OptimizedPVEToNetBoxSync:
         print("\n開始同步虛擬機...")
         success_count = 0
         total_count = 0
+        # 載入先前已知 vmid，用於偵測新增/刪除
+        if self.enhanced_mode and self.state_db:
+            self._known_vmids = self.state_db.get_known_vmids(self.cluster_name)
+        seen_vmids: set = set()
         for node_name, vms in self.pve_cache['vms_by_node'].items():
             print(f"\n處理節點 {node_name} 的虛擬機:")
             print(f"  發現 {len(vms)} 個虛擬機")
@@ -1491,8 +1553,11 @@ class OptimizedPVEToNetBoxSync:
             for vm in vms:
                 total_count += 1
                 vm['node'] = node_name
+                seen_vmids.add(int(vm['vmid']))
                 if self.process_virtual_machine(vm, device, cluster, force=node_is_new):
                     success_count += 1
+        # 偵測本次同步消失的 VM（已從 PVE 刪除）
+        self.detect_deleted_vms(seen_vmids)
         print(f"\n虛擬機同步完成: {success_count}/{total_count} 個虛擬機")
         return success_count > 0, success_count, total_count
 

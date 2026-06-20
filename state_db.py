@@ -98,7 +98,7 @@ class StateDB:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_log_cluster ON sync_log(cluster_name)")
 
             # Add columns introduced in later versions (safe to re-run on existing DBs)
-            for col_def in ("node TEXT", "primary_ip TEXT"):
+            for col_def in ("node TEXT", "primary_ip TEXT", "vm_name TEXT"):
                 try:
                     conn.execute(f"ALTER TABLE vm_config_history ADD COLUMN {col_def}")
                 except Exception:
@@ -145,15 +145,16 @@ class StateDB:
 
     def save_vm_config_snapshot(self, vm_id: int, cluster_name: str, config_hash: str,
                                 memory: int, vcpus: int, tags: List[str],
-                                node: str = None, primary_ip: str = None):
+                                node: str = None, primary_ip: str = None,
+                                vm_name: str = None):
         """保存 VM 配置快照"""
         with self._lock:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
                     INSERT INTO vm_config_history
-                    (vm_id, cluster_name, config_hash, memory, vcpus, tags_json, node, primary_ip)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (vm_id, cluster_name, config_hash, memory, vcpus, tags_json, node, primary_ip, vm_name)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         vm_id,
@@ -164,6 +165,7 @@ class StateDB:
                         json.dumps(tags) if tags else "[]",
                         node,
                         primary_ip,
+                        vm_name,
                     )
                 )
                 conn.commit()
@@ -174,7 +176,7 @@ class StateDB:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
                     """
-                    SELECT config_hash, memory, vcpus, tags_json, sync_time, node, primary_ip
+                    SELECT config_hash, memory, vcpus, tags_json, sync_time, node, primary_ip, vm_name
                     FROM vm_config_history
                     WHERE vm_id = ? AND cluster_name = ?
                     ORDER BY sync_time DESC LIMIT 1
@@ -191,8 +193,36 @@ class StateDB:
                         'sync_time': row[4],
                         'node': row[5],
                         'primary_ip': row[6],
+                        'vm_name': row[7],
                     }
                 return None
+
+    def get_known_vmids(self, cluster_name: str) -> Dict[int, Dict]:
+        """返回此叢集最近一次快照的所有 vmid，用於偵測刪除的 VM。
+
+        Returns:
+            {vmid: {'vm_name': str, 'node': str}} — 每個 vmid 取最新的一筆。
+        """
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT vm_id, vm_name, node
+                    FROM vm_config_history
+                    WHERE cluster_name = ?
+                      AND (vm_id, sync_time) IN (
+                          SELECT vm_id, MAX(sync_time)
+                          FROM vm_config_history
+                          WHERE cluster_name = ?
+                          GROUP BY vm_id
+                      )
+                    """,
+                    (cluster_name, cluster_name),
+                )
+                result = {}
+                for row in cursor.fetchall():
+                    result[row[0]] = {'vm_name': row[1], 'node': row[2]}
+                return result
 
     def get_vm_config_changes(self, vm_id: int, cluster_name: str, since: datetime) -> List[Dict]:
         """获取指定时间后的 VM 配置变更"""
