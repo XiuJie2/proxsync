@@ -1487,17 +1487,20 @@ class OptimizedPVEToNetBoxSync:
                             print(f"  ✗ 更新 VM {original_vm_name} 關聯失敗: {e}")
                     print(f"  ℹ️  VM {original_vm_name} 無配置變更，跳過同步")
                     if self.state_db:
-                        config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
-                        memory = int(vm_config.get('memory', 0))
-                        vcpus_save = int(vm_config.get('vcpus', vcpus))
-                        cur_ip = getattr(getattr(cached_vm, 'primary_ip4', None), 'address', None) or ''
-                        self.state_db.save_vm_config_snapshot(
-                            vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
-                            memory=memory, vcpus=vcpus_save, tags=tag_names,
-                            node=node_name, primary_ip=cur_ip, vm_name=original_vm_name,
-                            description=(vm_config.get('description') or '')[:500],
-                            disk_summary=json.dumps(self._parse_disk_summary(vm_config)),
-                        )
+                        try:
+                            config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
+                            memory = int(vm_config.get('memory', 0))
+                            vcpus_save = int(vm_config.get('vcpus', vcpus))
+                            cur_ip = getattr(getattr(cached_vm, 'primary_ip4', None), 'address', None) or ''
+                            self.state_db.save_vm_config_snapshot(
+                                vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
+                                memory=memory, vcpus=vcpus_save, tags=tag_names,
+                                node=node_name, primary_ip=cur_ip, vm_name=original_vm_name,
+                                description=(vm_config.get('description') or '').strip()[:500],
+                                disk_summary=json.dumps(self._parse_disk_summary(vm_config)),
+                            )
+                        except Exception as _snap_err:
+                            print(f"  ⚠ 跳過快照更新失敗: {_snap_err}")
                     return True
                 # cached_vm is None → 繼續往下完整建立此 VM
         custom_fields = {}
@@ -1550,7 +1553,7 @@ class OptimizedPVEToNetBoxSync:
                 update_data = {
                     'name': vm_name, 'cluster': cluster['id'], 'device': device.id, 'role': role_id,
                     'vcpus': vcpus, 'memory': int(vm_config.get('memory', 0)), 'status': status,
-                    'description': vm_config.get('description', ''), 'platform': platform_id,
+                    'description': (vm_config.get('description') or '')[:200], 'platform': platform_id,
                     'start_on_boot': boot_choice
                 }
                 if tag_ids:
@@ -1569,7 +1572,7 @@ class OptimizedPVEToNetBoxSync:
                 vm_data_dict = {
                     'serial': vm_id, 'name': vm_name, 'cluster': cluster['id'], 'device': device.id,
                     'role': role_id, 'vcpus': vcpus, 'memory': int(vm_config.get('memory', 0)),
-                    'status': status, 'description': vm_config.get('description', ''),
+                    'status': status, 'description': (vm_config.get('description') or '')[:200],
                     'platform': platform_id, 'start_on_boot': boot_choice
                 }
                 if tag_ids:
@@ -1606,13 +1609,36 @@ class OptimizedPVEToNetBoxSync:
                     vm_id=int(vm_id), cluster_name=self.cluster_name, config_hash=config_hash,
                     memory=memory, vcpus=vcpus_save, tags=tag_names,
                     node=node_name, primary_ip=primary_ip_str, vm_name=original_vm_name,
-                    description=(vm_config.get('description') or '')[:500],
+                    description=(vm_config.get('description') or '').strip()[:500],
                     disk_summary=json.dumps(self._parse_disk_summary(vm_config)),
                 )
             return True
         except Exception as e:
             error_msg = str(e)
             print(f"  處理虛擬機失敗: {error_msg}")
+            # 即使 NetBox 同步失敗，仍需更新 snapshot 的非 hash 欄位（vm_name, node,
+            # disk_summary, description, tags, memory, vcpus），並保留舊 config_hash，
+            # 使下一輪不重複發送漂移通知，同時 should_sync_vm() 仍會返回 True 繼續重試。
+            if self.enhanced_mode and self.state_db:
+                try:
+                    _lc = self.state_db.get_last_vm_config(int(vm_id), self.cluster_name)
+                    if _lc:
+                        _ip = locals().get('primary_ip_str') or _lc.get('primary_ip') or ''
+                        self.state_db.save_vm_config_snapshot(
+                            vm_id=int(vm_id),
+                            cluster_name=self.cluster_name,
+                            config_hash=_lc.get('config_hash'),
+                            memory=int(vm_config.get('memory', 0)),
+                            vcpus=int(vm_config.get('vcpus', vcpus)),
+                            tags=tag_names,
+                            node=node_name,
+                            primary_ip=_ip,
+                            vm_name=original_vm_name,
+                            description=(vm_config.get('description') or '').strip()[:500],
+                            disk_summary=json.dumps(self._parse_disk_summary(vm_config)),
+                        )
+                except Exception:
+                    pass
             return False
 
     # ---------- 批量同步VM ----------
