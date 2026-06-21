@@ -68,7 +68,7 @@
 {% if object.status == "success" %}
   <div class="alert alert-success" role="alert">
     <i class="mdi mdi-check-circle"></i>
-    {% if object.cluster_name|slice:":4" == "pbs:" %}
+    {% if object.is_pbs_job %}
       PBS 同步成功完成！備份記錄更新 <strong>{{ object.details.backup_updated|default:0 }}</strong> 筆，耗時 {{ object.duration|floatformat:0 }} 秒。
     {% else %}
       同步成功完成！共處理 <strong>{{ object.total_vms }}</strong> 台 VM，
@@ -135,7 +135,7 @@
     <div class="card">
       <h5 class="card-header">Statistics</h5>
       <table class="table table-hover attr-table">
-        {% if object.cluster_name|slice:":4" == "pbs:" %}
+        {% if object.is_pbs_job %}
           <tr>
             <th scope="row">Device Synced</th>
             <td>

@@ -252,18 +252,20 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
         syncer.sync()
 
         # Write backup records to PveBackupStatus
+        backup_updated, backup_skipped = None, None
         try:
             backup_records = _fetch_pbs_snapshots(pbs)
-            updated, skipped = _apply_pbs_backup_status(backup_records)
-            job.details["backup_updated"] = updated
-            job.details["backup_skipped"] = skipped
-            logger.info("PBS backup status: %d updated, %d no VM match", updated, skipped)
+            backup_updated, backup_skipped = _apply_pbs_backup_status(backup_records)
+            logger.info("PBS backup status: %d updated, %d no VM match", backup_updated, backup_skipped)
         except Exception as exc:
             logger.warning("PBS backup status sync failed (non-fatal): %s", exc)
 
         job.refresh_from_db()
         job.status = "success"
         job.end_time = timezone.now()
+        if backup_updated is not None:
+            job.details["backup_updated"] = backup_updated
+            job.details["backup_skipped"] = backup_skipped
         job.details.pop("heartbeat", None)
         job.save()
 

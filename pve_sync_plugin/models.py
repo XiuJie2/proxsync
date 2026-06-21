@@ -94,6 +94,10 @@ class PveSyncJob(NetBoxModel):
         }.get(self.status, "secondary")
 
     @property
+    def is_pbs_job(self):
+        return self.cluster_name.startswith("pbs:")
+
+    @property
     def error_message(self):
         if not self.details:
             return ""
