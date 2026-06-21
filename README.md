@@ -317,8 +317,8 @@ netbox-pve-sync/
 │   ├── templates/pve_sync/       # Django 模板
 │   └── api/                      # REST API（序列化、ViewSet、路由）
 │
-├── sync.py                       # PVE 同步引擎核心
-├── pbs215_sync.py                # PBS 同步腳本
+├── pve_sync.py                   # PVE 同步引擎核心
+├── pbs_sync.py                   # PBS 同步腳本
 ├── state_db.py                   # SQLite 增量同步狀態管理
 ├── config.py                     # 設定讀取（env / YAML）
 ├── pyproject.toml

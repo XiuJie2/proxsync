@@ -12,12 +12,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from netbox.views import generic
-
-logger = logging.getLogger(__name__)
 from dcim.models import Device
 from virtualization.models import VirtualMachine
 
 import json
+
+logger = logging.getLogger(__name__)
 import hmac
 import hashlib
 
@@ -277,7 +277,7 @@ class TriggerPbsSyncView(PermissionRequiredMixin, View):
         pbs = get_object_or_404(PbsServerConfig, pk=pbs_pk, enabled=True)
         cluster_name = f"pbs:{pbs.name}"
 
-        if PveSyncJob.objects.filter(cluster_name=cluster_name, status__in=["pending", "running"]).exists():
+        if has_active_sync_job(cluster_name):
             messages.warning(request, f"PBS sync for {pbs.name} is already running.")
             return redirect(request.POST.get("return_url") or reverse("plugins:pve_sync_plugin:dashboard"))
 
