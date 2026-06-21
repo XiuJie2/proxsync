@@ -68,8 +68,12 @@
 {% if object.status == "success" %}
   <div class="alert alert-success" role="alert">
     <i class="mdi mdi-check-circle"></i>
-    同步成功完成！共處理 <strong>{{ object.total_vms }}</strong> 台 VM，
-    成功 <strong>{{ object.success_vms }}</strong> 台，耗時 {{ object.duration|floatformat:0 }} 秒。
+    {% if object.cluster_name|slice:":4" == "pbs:" %}
+      PBS 同步成功完成！備份記錄更新 <strong>{{ object.details.backup_updated|default:0 }}</strong> 筆，耗時 {{ object.duration|floatformat:0 }} 秒。
+    {% else %}
+      同步成功完成！共處理 <strong>{{ object.total_vms }}</strong> 台 VM，
+      成功 <strong>{{ object.success_vms }}</strong> 台，耗時 {{ object.duration|floatformat:0 }} 秒。
+    {% endif %}
   </div>
 {% endif %}
 
@@ -131,52 +135,77 @@
     <div class="card">
       <h5 class="card-header">Statistics</h5>
       <table class="table table-hover attr-table">
-        <tr>
-          <th scope="row">Total VMs</th>
-          <td>
-            {% if object.total_vms > 0 %}
-              {{ object.total_vms }}
-            {% elif object.status == "running" %}
-              <span class="text-muted">同步完成後顯示</span>
-            {% else %}
-              0
-            {% endif %}
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">Success</th>
-          <td><span class="text-success">{{ object.success_vms }}</span></td>
-        </tr>
-        <tr>
-          <th scope="row">Failed</th>
-          <td><span class="text-danger">{{ object.failed_vms }}</span></td>
-        </tr>
-        <tr>
-          <th scope="row">Success Rate</th>
-          <td>
-            {% if object.total_vms > 0 %}
-              {{ object.success_rate|floatformat:1 }}%
-            {% else %}
-              —
-            {% endif %}
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">Nodes Offline</th>
-          <td>{{ object.nodes_offline }}</td>
-        </tr>
-        <tr>
-          <th scope="row">Config Drifts</th>
-          <td>{{ object.config_drifts }}</td>
-        </tr>
-        <tr>
-          <th scope="row">Tag Changes</th>
-          <td>{{ object.tag_changes }}</td>
-        </tr>
-        <tr>
-          <th scope="row">Resource Alerts</th>
-          <td>{{ object.resource_alerts }}</td>
-        </tr>
+        {% if object.cluster_name|slice:":4" == "pbs:" %}
+          <tr>
+            <th scope="row">Device Synced</th>
+            <td>
+              {% if object.status == "running" %}
+                <span class="text-muted">同步完成後顯示</span>
+              {% elif object.status == "success" %}
+                <span class="text-success">1</span>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Backup Records Updated</th>
+            <td>
+              {% if object.details.backup_updated is not None %}
+                <span class="text-success">{{ object.details.backup_updated }}</span>
+              {% elif object.status == "running" %}
+                <span class="text-muted">同步完成後顯示</span>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">No VM Match (Skipped)</th>
+            <td>
+              {% if object.details.backup_skipped is not None %}
+                {{ object.details.backup_skipped }}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <th scope="row">Total VMs</th>
+            <td>
+              {% if object.total_vms > 0 %}
+                {{ object.total_vms }}
+              {% elif object.status == "running" %}
+                <span class="text-muted">同步完成後顯示</span>
+              {% else %}0{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Success</th>
+            <td><span class="text-success">{{ object.success_vms }}</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Failed</th>
+            <td><span class="text-danger">{{ object.failed_vms }}</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Success Rate</th>
+            <td>
+              {% if object.total_vms > 0 %}{{ object.success_rate|floatformat:1 }}%{% else %}—{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Nodes Offline</th>
+            <td>{{ object.nodes_offline }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Config Drifts</th>
+            <td>{{ object.config_drifts }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Tag Changes</th>
+            <td>{{ object.tag_changes }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Resource Alerts</th>
+            <td>{{ object.resource_alerts }}</td>
+          </tr>
+        {% endif %}
       </table>
     </div>
   </div>
