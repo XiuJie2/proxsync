@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
-    {name = "PVE-NetBox Sync Maintainers"}
+    {name = "lixiujie85", email = "lixiujie85@gmail.com"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
