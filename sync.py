@@ -706,7 +706,7 @@ class OptimizedPVEToNetBoxSync:
             if iface_type not in ['eth', 'bridge', 'bond']:
                 continue
             mac_address = iface_data.get('address', '').lower() or None
-            enabled = iface_data.get('active', 1) == 1
+            enabled = iface_data.get('active', 0) == 1
             nb_iface_data = {
                 'device': device_id, 'name': iface_name, 'mac_address': mac_address, 'enabled': enabled
             }
