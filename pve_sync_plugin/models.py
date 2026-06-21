@@ -263,6 +263,10 @@ class PvePluginSettings(NetBoxModel):
         default="/var/lib/netbox/pve-sync-state.db",
     )
     enable_backup_sync = models.BooleanField(default=True)
+    log_retention_days = models.PositiveIntegerField(
+        default=90,
+        help_text="保留同步 Log 及 State DB 歷史資料天數（0 = 不自動清除）",
+    )
 
     class Meta:
         verbose_name = "Proxmox Sync Settings"

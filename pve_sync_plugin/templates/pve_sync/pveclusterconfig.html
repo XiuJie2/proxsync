@@ -37,6 +37,14 @@
             <i class="mdi mdi-sync"></i> Sync This Cluster Now
           </button>
         </form>
+        <form method="post" action="{% url 'plugins:pve_sync_plugin:cluster-full-sync' object.pk %}"
+              class="mt-2"
+              onsubmit="return confirm('Clear incremental sync cache and force a full resync?')">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-link text-muted p-0">
+            <i class="mdi mdi-database-refresh-outline"></i> Clear cache &amp; full sync
+          </button>
+        </form>
       </div>
     </div>
   </div>

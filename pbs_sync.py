@@ -60,7 +60,9 @@ class PBSClient:
             if resp.status_code == 200:
                 return resp.json().get('data')
             return None
-        except: return None
+        except Exception as exc:
+            logger.warning("PBS API request failed (%s): %s", endpoint, exc)
+            return None
 
 # ============================================================================
 # NetBox 同步器
@@ -108,7 +110,8 @@ class PBSToNetBoxSync:
         disk_free = disk_format_size(status.get('root', {}).get('avail', 0))
 
         # 2. 獲取 NetBox 基礎物件
-        site = self.get_or_create_obj(self.nb.dcim.sites, "Main Datacenter")
+        site_name = _get_env('PBS_NETBOX_SITE', '') or "Main Datacenter"
+        site = self.get_or_create_obj(self.nb.dcim.sites, site_name)
         manu = self.get_or_create_obj(self.nb.dcim.manufacturers, "Proxmox")
         role = self.get_or_create_obj(self.nb.dcim.device_roles, "Backup Server", {'color': '9e9e9e'})
         platform = self.get_or_create_obj(self.nb.dcim.platforms, "Proxmox Backup Server")

@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.db.models import Count, Q
@@ -10,6 +12,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from netbox.views import generic
+
+logger = logging.getLogger(__name__)
 from dcim.models import Device
 from virtualization.models import VirtualMachine
 
@@ -390,6 +394,40 @@ class TriggerSyncView(PermissionRequiredMixin, View):
     def get(self, request):
         messages.info(request, "Use Sync Now from the dashboard to start a sync.")
         return redirect(reverse("plugins:pve_sync_plugin:dashboard"))
+
+
+class FullSyncView(PermissionRequiredMixin, View):
+    """Clear state_db cache for a cluster and trigger a full resync."""
+
+    permission_required = "pve_sync_plugin.add_pvesyncjob"
+
+    def post(self, request, pk):
+        from .models import PveClusterConfig, PvePluginSettings
+        cluster = get_object_or_404(PveClusterConfig, pk=pk)
+
+        if has_active_sync_job(cluster.name):
+            messages.warning(request, f"Cluster '{cluster.name}' already has an active sync — please wait.")
+            return redirect(cluster.get_absolute_url())
+
+        try:
+            settings = PvePluginSettings.load()
+            db_path = settings.state_db_path or "/var/lib/pve-sync/state.db"
+            import sys, os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            from state_db import StateDB
+            cleared = StateDB(db_path).clear_cluster_cache(cluster.name)
+            logger.info("Full sync: cleared %d state_db rows for cluster '%s'", cleared, cluster.name)
+        except Exception as exc:
+            logger.warning("Full sync: could not clear state_db: %s", exc)
+
+        try:
+            job = create_and_enqueue_sync_job(cluster.name, request.user, "manual",
+                                              details={"source": "full_sync"})
+            messages.success(request, f"Cache cleared — full sync queued as job #{job.id}.")
+            return redirect(job.get_absolute_url())
+        except Exception as exc:
+            messages.error(request, f"Unable to start full sync: {exc}")
+            return redirect(cluster.get_absolute_url())
 
 
 class TriggerVmSyncView(PermissionRequiredMixin, View):

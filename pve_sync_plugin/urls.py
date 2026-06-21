@@ -21,6 +21,11 @@ urlpatterns = [
     # Manual sync triggers
     path("trigger/", views.TriggerSyncView.as_view(), name="trigger-sync"),
     path(
+        "clusters/<int:pk>/full-sync/",
+        views.FullSyncView.as_view(),
+        name="cluster-full-sync",
+    ),
+    path(
         "virtual-machines/<int:vm_id>/sync/",
         views.TriggerVmSyncView.as_view(),
         name="trigger-vm-sync",

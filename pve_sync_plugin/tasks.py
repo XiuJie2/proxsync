@@ -242,10 +242,11 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
         os.environ["PBS_TOKEN_SECRET"] = pbs.pbs_token_secret
         os.environ["PBS_VERIFY_SSL"] = "true" if pbs.pbs_verify_ssl else "false"
         os.environ["PBS_NODE_NAME"] = pbs.pbs_node_name
+        os.environ["PBS_NETBOX_SITE"] = pbs.netbox_site.name if pbs.netbox_site else ""
         os.environ["NB_API_URL"] = get_plugin_config("netbox_url", "")
         os.environ["NB_API_TOKEN"] = get_plugin_config("netbox_token", "")
 
-        from pbs215_sync import PBSToNetBoxSync
+        from pbs_sync import PBSToNetBoxSync
 
         syncer = PBSToNetBoxSync()
         syncer.sync()
@@ -290,9 +291,9 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
 
     finally:
         stop_hb.set()
-        # Clean up PBS-specific env vars
         for key in ["PBS_HOST", "PBS_TOKEN_NAME", "PBS_TOKEN_SECRET",
-                    "PBS_VERIFY_SSL", "PBS_NODE_NAME"]:
+                    "PBS_VERIFY_SSL", "PBS_NODE_NAME", "PBS_NETBOX_SITE",
+                    "NB_API_URL", "NB_API_TOKEN"]:
             os.environ.pop(key, None)
 
 

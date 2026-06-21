@@ -8,7 +8,6 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-# Map SyncScheduleChoices values to timedeltas
 _SCHEDULE_INTERVALS = {
     "hourly":   datetime.timedelta(hours=1),
     "every_3h": datetime.timedelta(hours=3),
@@ -25,7 +24,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="Print what would be triggered without actually enqueueing jobs.",
+            help="Print what would run without actually doing it.",
         )
 
     def handle(self, *args, **options):
@@ -63,9 +62,7 @@ class Command(BaseCommand):
                 continue
 
             if has_active_sync_job(cluster.name):
-                self.stdout.write(
-                    f"  Skipping '{cluster.name}': sync already running."
-                )
+                self.stdout.write(f"  Skipping '{cluster.name}': sync already running.")
                 continue
 
             self.stdout.write(f"  Triggering PVE sync for '{cluster.name}' (schedule={cluster.sync_schedule})")
@@ -84,6 +81,7 @@ class Command(BaseCommand):
     def _check_pbs_servers(self, now, dry_run):
         from pve_sync_plugin.models import PbsServerConfig, PveSyncJob
         from pve_sync_plugin.tasks import enqueue_pbs_sync
+        from pve_sync_plugin.view_helpers import has_active_sync_job
 
         triggered = 0
         servers = PbsServerConfig.objects.filter(enabled=True).exclude(sync_schedule="disabled")
@@ -93,12 +91,7 @@ class Command(BaseCommand):
                              pbs.name, pbs.sync_schedule, pbs.last_sync)
                 continue
 
-            # Check no active PBS job for this server
-            active = PveSyncJob.objects.filter(
-                cluster_name=f"pbs:{pbs.name}",
-                status__in=["pending", "running"],
-            ).exists()
-            if active:
+            if has_active_sync_job(f"pbs:{pbs.name}"):
                 self.stdout.write(f"  Skipping PBS '{pbs.name}': sync already running.")
                 continue
 
