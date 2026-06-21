@@ -78,7 +78,7 @@
 ### 1. 安裝插件
 
 ```bash
-/opt/netbox/venv/bin/pip install -e /opt/proxsync
+/opt/netbox/venv/bin/pip install proxsync
 ```
 
 ### 2. 啟用插件
@@ -89,14 +89,6 @@
 PLUGINS = [
     "pve_sync_plugin",
 ]
-
-PLUGINS_CONFIG = {
-    "pve_sync_plugin": {
-        # 也可在 Web UI Settings 頁面設定，此處為預設值
-        "netbox_url": "http://localhost:8001",
-        "netbox_token": "your-netbox-api-token",
-    },
-}
 ```
 
 ### 3. 建立資料表
@@ -113,12 +105,12 @@ cd /opt/netbox/netbox
 sudo systemctl restart netbox netbox-rq
 ```
 
-### 5. 設定排程自動同步（推薦）
+### 5. 設定排程自動同步
 
-在 root crontab 加入以下排程，每 15 分鐘檢查一次是否有到期的同步任務：
+在 crontab 加入以下排程，每 15 分鐘檢查一次是否有到期的同步任務：
 
 ```bash
-sudo crontab -e
+crontab -e
 ```
 
 加入：
@@ -127,7 +119,13 @@ sudo crontab -e
 */15 * * * * cd /opt/netbox/netbox && /opt/netbox/venv/bin/python manage.py run_scheduled_syncs >> /var/log/netbox-pve-scheduled-sync.log 2>&1
 ```
 
-> 設定好 cron 後，只需在 Web UI 各叢集設定中選擇同步週期，系統即會自動執行。
+### 6. 在 Web UI 完成設定
+
+前往 `Plugins → Proxmox Sync → Settings`，填入 NetBox URL、API Token，以及 Telegram 通知設定（可選）。
+
+接著前往 `Plugins → Proxmox Sync → PVE Clusters → Add` 新增第一個 PVE 叢集連線。
+
+> 設定好 cron 後，只需在各叢集設定中選擇同步週期，系統即會自動執行。
 
 ---
 
