@@ -26,7 +26,7 @@ class PVESyncEngine:
         """Execute a full sync cycle using the standalone engine."""
         try:
             config_module = importlib.import_module("config")
-            sync_module = importlib.import_module("sync")
+            sync_module = importlib.import_module("pve_sync")
         except ImportError as exc:
             logger.error(
                 "Cannot import standalone sync modules. "

@@ -14,7 +14,7 @@ def _read_text(relative_path: str) -> str:
 def test_core_sync_modules_are_packaged_with_plugin() -> None:
     pyproject = _read_text("pyproject.toml")
 
-    assert 'py-modules = ["config", "state_db", "sync"]' in pyproject
+    assert 'py-modules = ["config", "state_db", "pve_sync", "pbs_sync"]' in pyproject
 
 
 def test_plugin_engine_does_not_mutate_python_path() -> None:
