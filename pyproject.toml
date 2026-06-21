@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "netbox-pve-sync"
+name = "proxsync"
 version = "2.0.0"
 description = "NetBox plugin for Proxmox VE inventory synchronization"
 readme = "README.md"
@@ -36,9 +36,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourorg/netbox-pve-sync"
-Source = "https://github.com/yourorg/netbox-pve-sync"
-Issues = "https://github.com/yourorg/netbox-pve-sync/issues"
+Homepage = "https://github.com/lixiujie85/proxsync"
+Source = "https://github.com/lixiujie85/proxsync"
+Issues = "https://github.com/lixiujie85/proxsync/issues"
 
 [project.optional-dependencies]
 standalone = [

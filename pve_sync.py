@@ -1,5 +1,5 @@
 """
-netbox-pve-sync: 同步 Proxmox VE 到 NetBox
+proxsync: 同步 Proxmox VE 到 NetBox
 優化版 - 使用預加載和快取來提高效能，包含 Telegram 通知
 增強版 - 支援狀態持久化、節點監控、配置漂移檢測、增量同步
 """

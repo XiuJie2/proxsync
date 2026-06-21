@@ -1,6 +1,6 @@
-# netbox-pve-sync
+# proxsync
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/XiuJie2/netbox-pve-sync)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/XiuJie2/proxsync)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![NetBox 4.5–4.6](https://img.shields.io/badge/NetBox-4.5%20–%204.6-green.svg)](https://netbox.dev/)
 [![Proxmox VE](https://img.shields.io/badge/Proxmox-VE%20%2B%20PBS-orange.svg)](https://www.proxmox.com/)
@@ -78,7 +78,7 @@
 ### 1. 安裝插件
 
 ```bash
-/opt/netbox/venv/bin/pip install -e /opt/netbox-pve-sync
+/opt/netbox/venv/bin/pip install -e /opt/proxsync
 ```
 
 ### 2. 啟用插件
@@ -290,7 +290,7 @@ GET /api/plugins/pve-sync/backup-status/
 ## 專案結構
 
 ```
-netbox-pve-sync/
+proxsync/
 ├── pve_sync_plugin/
 │   ├── __init__.py               # PluginConfig（v2.1.0）
 │   ├── models.py                 # PveSyncJob / PveClusterConfig / PbsServerConfig
@@ -402,8 +402,8 @@ chown netbox:netbox /var/lib/netbox
 
 ```bash
 # 複製專案
-git clone https://github.com/XiuJie2/netbox-pve-sync.git
-cd netbox-pve-sync
+git clone https://github.com/XiuJie2/proxsync.git
+cd proxsync
 
 # 安裝至 NetBox venv（開發模式）
 /opt/netbox/venv/bin/pip install -e .
