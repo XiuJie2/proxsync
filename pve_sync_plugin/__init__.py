@@ -41,6 +41,22 @@ class PveSyncPluginConfig(PluginConfig):
         super().ready()
         from pve_sync_plugin.signals import register_signals
         register_signals()
+        self._bootstrap_scheduler()
+
+    def _bootstrap_scheduler(self):
+        import os
+        # Only bootstrap from the main process / RQ worker, not every
+        # gunicorn pre-fork child (RUN_MAIN is set by Django's autoreloader).
+        if os.environ.get("RUN_MAIN") == "true":
+            return
+        try:
+            from pve_sync_plugin.tasks import bootstrap_periodic_scheduler
+            bootstrap_periodic_scheduler()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not bootstrap periodic scheduler: %s", exc
+            )
 
 
 config = PveSyncPluginConfig
