@@ -967,6 +967,8 @@ class OptimizedPVEToNetBoxSync:
                     if model in config:
                         mac_address = config[model]
                         break
+                # link_down=1 in PVE config means the vNIC cable is disconnected
+                enabled = config.get('link_down', '0') != '1'
                 vm_interfaces = self.nb_cache['vm_interfaces'].get(vm.id, {})
                 bridge_name = config.get('bridge', '')
                 # Create the bridge interface on the node device so it's visible in the node's interface list.
@@ -978,13 +980,20 @@ class OptimizedPVEToNetBoxSync:
                     )
                 if config_key in vm_interfaces:
                     vm_interface = vm_interfaces[config_key]
+                    enabled_changed = vm_interface.enabled != enabled
+                    if enabled_changed:
+                        vm_interface.enabled = enabled
                     if mac_address:
                         self.set_vm_interface_mac(vm_interface, mac_address)
+                        # set_vm_interface_mac only saves the interface in some branches;
+                        # ensure the enabled change is always persisted
+                        if enabled_changed:
+                            vm_interface.save()
                     else:
                         vm_interface.save()
                 else:
                     iface_create_data = {
-                        'virtual_machine': vm.id, 'name': config_key, 'enabled': True
+                        'virtual_machine': vm.id, 'name': config_key, 'enabled': enabled
                     }
                     vm_interface = self.nb_api.virtualization.interfaces.create(**iface_create_data)
                     self.nb_cache['vm_interfaces'].setdefault(vm.id, {})[config_key] = vm_interface
