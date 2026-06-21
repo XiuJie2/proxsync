@@ -407,59 +407,47 @@ class StateDB:
 
     # ========== 工具方法 ==========
 
-    def cleanup_old_data(self, days: int = 90) -> Dict[str, int]:
-        """清理歷史資料，保留最近 days 天（vm_config_history 每個 VM 至少保留最新一筆）。"""
-        cutoff = f"-{days} days"
-        log_cutoff = "-365 days"
-        deleted = {}
+    def cleanup_old_data(self, days: int = 90):
+        """清理90天前的历史数据"""
         with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            try:
-                # vm_config_history: 刪除舊記錄，但每個 VM 保留最新一筆（供增量同步使用）
-                cur = conn.execute(
+            with sqlite3.connect(self.db_path) as conn:
+                # 清理旧的 VM 配置历史（保留最近90天）
+                conn.execute(
                     """
                     DELETE FROM vm_config_history
-                    WHERE sync_time < datetime('now', ?)
-                      AND (vm_id, cluster_name, sync_time) NOT IN (
-                          SELECT vm_id, cluster_name, MAX(sync_time)
-                          FROM vm_config_history
-                          GROUP BY vm_id, cluster_name
-                      )
+                    WHERE datetime(sync_time) < datetime('now', '-? days')
                     """,
-                    (cutoff,)
+                    (days,)
                 )
-                deleted['vm_config_history'] = cur.rowcount
 
-                cur = conn.execute(
-                    "DELETE FROM node_status_history WHERE sync_time < datetime('now', ?)",
-                    (cutoff,)
+                # 清理旧的节点状态历史（保留最近90天）
+                conn.execute(
+                    """
+                    DELETE FROM node_status_history
+                    WHERE datetime(sync_time) < datetime('now', '-? days')
+                    """,
+                    (days,)
                 )
-                deleted['node_status_history'] = cur.rowcount
 
-                cur = conn.execute(
-                    "DELETE FROM node_resource_history WHERE sync_time < datetime('now', ?)",
-                    (cutoff,)
+                # 清理旧的节点资源历史（保留最近90天）
+                conn.execute(
+                    """
+                    DELETE FROM node_resource_history
+                    WHERE datetime(sync_time) < datetime('now', '-? days')
+                    """,
+                    (days,)
                 )
-                deleted['node_resource_history'] = cur.rowcount
 
-                cur = conn.execute(
-                    "DELETE FROM sync_log WHERE start_time < datetime('now', ?)",
-                    (log_cutoff,)
+                # 清理旧的同步日志（保留最近365天）
+                conn.execute(
+                    """
+                    DELETE FROM sync_log
+                    WHERE datetime(start_time) < datetime('now', '-365 days')
+                    """
                 )
-                deleted['sync_log'] = cur.rowcount
 
                 conn.commit()
-            finally:
-                conn.close()
-
-        total = sum(deleted.values())
-        import logging
-        logging.getLogger(__name__).info(
-            "state_db cleanup: deleted %d rows (vm_history=%d node_status=%d node_resource=%d sync_log=%d)",
-            total, deleted['vm_config_history'], deleted['node_status_history'],
-            deleted['node_resource_history'], deleted['sync_log'],
-        )
-        return deleted
+                print(f"✓ 已清理 {days} 天前的历史数据")
 
     def get_database_stats(self) -> Dict[str, int]:
         """获取数据库统计信息"""
