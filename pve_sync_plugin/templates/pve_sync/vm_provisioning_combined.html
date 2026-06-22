@@ -47,7 +47,7 @@
         <div class="row g-2 mb-3">
           <div class="col-7">
             <label class="form-label fw-semibold">PVE 叢集</label>
-            <select name="cluster" id="cluster" class="form-select" onchange="loadNodes(this.value)">
+            <select name="cluster" id="cluster" class="form-select">
               <option value="">— 選擇叢集 —</option>
               {% for c in clusters %}
                 <option value="{{ c.name }}">{{ c.name }}</option>
@@ -56,10 +56,20 @@
           </div>
           <div class="col-5">
             <label class="form-label fw-semibold">節點</label>
-            <select name="node" id="node" class="form-select" disabled>
-              <option value="">— 先選擇叢集 —</option>
+            <select name="node" id="node" class="form-select">
+              <option value="">— 選擇節點 —</option>
+              {% for c in clusters %}
+                {% with nodes=cluster_nodes|get_item:c.name %}
+                  {% if nodes %}
+                    <optgroup label="{{ c.name }}">
+                      {% for node in nodes %}
+                        <option value="{{ node }}">{{ node }}</option>
+                      {% endfor %}
+                    </optgroup>
+                  {% endif %}
+                {% endwith %}
+              {% endfor %}
             </select>
-            <div id="node_status" class="form-text"></div>
           </div>
         </div>
 
@@ -233,43 +243,20 @@
 </div>{# /collapse #}
 
 {# ── 規劃記錄列表 ── #}
-<div class="card">
+<div class="card" id="log-table-card">
   <div class="card-body p-0">
     {% render_table table %}
   </div>
 </div>
 
 <script>
+const panel = document.getElementById('new-vm-panel');
+const tableCard = document.getElementById('log-table-card');
+panel.addEventListener('show.bs.collapse',  () => tableCard.style.display = 'none');
+panel.addEventListener('hidden.bs.collapse', () => tableCard.style.display = '');
+
 const FREE_IPS_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-free-ips' 0 %}".replace('/0/', '/');
 const CHECK_IP_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-check-ip' %}";
-const NODES_URL    = "{% url 'plugins:pve_sync_plugin:vm-planner-nodes' %}";
-
-function loadNodes(clusterName) {
-  const sel    = document.getElementById('node');
-  const status = document.getElementById('node_status');
-  sel.disabled = true;
-  sel.innerHTML = '<option value="">— 載入中… —</option>';
-  status.textContent = '';
-  if (!clusterName) { sel.innerHTML = '<option value="">— 先選擇叢集 —</option>'; return; }
-  fetch(NODES_URL + '?cluster=' + encodeURIComponent(clusterName), {
-    credentials: 'same-origin',
-    headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}
-  })
-  .then(r => r.json())
-  .then(data => {
-    sel.innerHTML = '<option value="">— 選擇節點 —</option>';
-    if (data.nodes && data.nodes.length > 0) {
-      data.nodes.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
-      sel.disabled = false;
-      if (data.nodes.length === 1) sel.value = data.nodes[0];
-      status.innerHTML = '<span class="text-muted">共 ' + data.nodes.length + ' 個節點</span>';
-    } else {
-      sel.innerHTML = '<option value="">— 此叢集無節點資料 —</option>';
-      status.innerHTML = '<span class="text-warning">NetBox 無此叢集的節點記錄</span>';
-    }
-  })
-  .catch(e => { sel.innerHTML = '<option value="">— 載入失敗 —</option>'; status.innerHTML = '<span class="text-danger">載入失敗：' + e.message + '</span>'; });
-}
 
 function getLastOctet(ip) { const m = (ip || '').match(/\.(\d+)$/); return m ? m[1] : null; }
 

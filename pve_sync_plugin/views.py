@@ -479,8 +479,21 @@ class VmProvisioningCombinedView(PermissionRequiredMixin, View):
 
     def _form_ctx(self):
         from ipam.models import IPRange
+        from dcim.models import Device
+        clusters = list(PveClusterConfig.objects.order_by("name"))
+        cluster_nodes = {}
+        for c in clusters:
+            if c.netbox_cluster_id:
+                nodes = list(
+                    Device.objects
+                    .filter(cluster_id=c.netbox_cluster_id)
+                    .order_by("name")
+                    .values_list("name", flat=True)
+                )
+                cluster_nodes[c.name] = nodes
         return {
-            "clusters":      PveClusterConfig.objects.order_by("name"),
+            "clusters":      clusters,
+            "cluster_nodes": cluster_nodes,
             "ip_ranges":     IPRange.objects.order_by("start_address"),
             "qemu_ga_items": VmProvisioningLog.QEMU_GA_ITEMS,
         }
