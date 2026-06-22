@@ -45,7 +45,7 @@
         <div class="row g-2 mb-3">
           <div class="col-7">
             <label class="form-label fw-semibold">PVE 叢集</label>
-            <select name="cluster" id="cluster" class="form-select">
+            <select name="cluster" id="cluster" class="form-select" onchange="loadNodes(this.value)">
               <option value="">— 選擇叢集 —</option>
               {% for c in clusters %}
                 <option value="{{ c.name }}">{{ c.name }}</option>
@@ -54,7 +54,9 @@
           </div>
           <div class="col-5">
             <label class="form-label fw-semibold">節點</label>
-            <input type="text" name="node" id="node" class="form-control" placeholder="例如：pve01">
+            <select name="node" id="node" class="form-select" disabled>
+              <option value="">— 先選擇叢集 —</option>
+            </select>
           </div>
         </div>
 
@@ -217,6 +219,41 @@
 <script>
 const FREE_IPS_URL  = "{% url 'plugins:pve_sync_plugin:vm-planner-free-ips' 0 %}".replace('/0/', '/');
 const CHECK_IP_URL  = "{% url 'plugins:pve_sync_plugin:vm-planner-check-ip' %}";
+const NODES_URL     = "{% url 'plugins:pve_sync_plugin:vm-planner-nodes' %}";
+
+function loadNodes(clusterName) {
+  const sel = document.getElementById('node');
+  sel.innerHTML = '<option value="">— 載入中… —</option>';
+  sel.disabled = true;
+
+  if (!clusterName) {
+    sel.innerHTML = '<option value="">— 先選擇叢集 —</option>';
+    return;
+  }
+
+  fetch(NODES_URL + '?cluster=' + encodeURIComponent(clusterName), {
+    headers: {'X-Requested-With': 'XMLHttpRequest'}
+  })
+  .then(r => r.json())
+  .then(data => {
+    sel.innerHTML = '<option value="">— 選擇節點 —</option>';
+    if (data.nodes && data.nodes.length > 0) {
+      data.nodes.forEach(function(name) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      });
+      sel.disabled = false;
+      if (data.nodes.length === 1) sel.value = data.nodes[0];
+    } else {
+      sel.innerHTML = '<option value="">— 此叢集無節點記錄 —</option>';
+    }
+  })
+  .catch(function() {
+    sel.innerHTML = '<option value="">— 載入失敗 —</option>';
+  });
+}
 
 function getLastOctet(ip) {
   const m = (ip || '').match(/\.(\d+)$/);

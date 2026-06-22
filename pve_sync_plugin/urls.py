@@ -183,6 +183,7 @@ urlpatterns = [
 
     # VM Provisioning Planner
     path("vm-planner/", views.VmPlannerView.as_view(), name="vm-planner"),
+    path("vm-planner/nodes/", views.VmPlannerNodesApi.as_view(), name="vm-planner-nodes"),
     path("vm-planner/free-ips/<int:range_id>/", views.VmPlannerFreeIpsApi.as_view(), name="vm-planner-free-ips"),
     path("vm-planner/check-ip/", views.VmPlannerCheckIpApi.as_view(), name="vm-planner-check-ip"),
 

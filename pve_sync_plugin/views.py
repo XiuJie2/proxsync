@@ -572,6 +572,34 @@ class VmProvisioningLogDeleteView(generic.ObjectDeleteView):
     queryset = VmProvisioningLog.objects.all()
 
 
+class VmPlannerNodesApi(PermissionRequiredMixin, View):
+    """AJAX — return the device nodes for a given PVE cluster name."""
+
+    permission_required = "pve_sync_plugin.view_pveclusterconfig"
+
+    def get(self, request):
+        from dcim.models import Device
+        cluster_name = request.GET.get("cluster", "").strip()
+        if not cluster_name:
+            return JsonResponse({"nodes": []})
+
+        try:
+            cluster_cfg = PveClusterConfig.objects.get(name=cluster_name)
+        except PveClusterConfig.DoesNotExist:
+            return JsonResponse({"nodes": []})
+
+        if not cluster_cfg.netbox_cluster_id:
+            return JsonResponse({"nodes": []})
+
+        nodes = (
+            Device.objects
+            .filter(cluster_id=cluster_cfg.netbox_cluster_id)
+            .order_by("name")
+            .values_list("name", flat=True)
+        )
+        return JsonResponse({"nodes": list(nodes)})
+
+
 class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
     """AJAX — return free IPs for an IP Range, optionally biased toward a preferred last octet."""
 
