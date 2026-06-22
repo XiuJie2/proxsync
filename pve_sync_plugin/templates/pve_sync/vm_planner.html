@@ -54,11 +54,9 @@
           </div>
           <div class="col-5">
             <label class="form-label fw-semibold">節點</label>
-            <select name="node" id="node_select" class="form-select" disabled style="display:none">
+            <select name="node" id="node" class="form-select" disabled>
               <option value="">— 先選擇叢集 —</option>
             </select>
-            <input type="text" name="node" id="node_input" class="form-control"
-                   placeholder="— 先選擇叢集 —" readonly>
             <div id="node_status" class="form-text"></div>
           </div>
         </div>
@@ -225,21 +223,17 @@ const CHECK_IP_URL  = "{% url 'plugins:pve_sync_plugin:vm-planner-check-ip' %}";
 const NODES_URL     = "{% url 'plugins:pve_sync_plugin:vm-planner-nodes' %}";
 
 function loadNodes(clusterName) {
-  const sel    = document.getElementById('node_select');
-  const inp    = document.getElementById('node_input');
+  const sel    = document.getElementById('node');
   const status = document.getElementById('node_status');
 
-  // Reset to text input while loading
-  sel.style.display = 'none';
-  sel.removeAttribute('name');
-  inp.style.display = '';
-  inp.setAttribute('name', 'node');
-  inp.value = '';
-  inp.readOnly = true;
-  inp.placeholder = clusterName ? '載入節點中…' : '— 先選擇叢集 —';
+  sel.disabled = true;
+  sel.innerHTML = '<option value="">— 載入中… —</option>';
   status.textContent = '';
 
-  if (!clusterName) return;
+  if (!clusterName) {
+    sel.innerHTML = '<option value="">— 先選擇叢集 —</option>';
+    return;
+  }
 
   fetch(NODES_URL + '?cluster=' + encodeURIComponent(clusterName), {
     credentials: 'same-origin',
@@ -248,43 +242,31 @@ function loadNodes(clusterName) {
   .then(function(r) {
     const ct = r.headers.get('content-type') || '';
     if (!ct.includes('application/json')) {
-      throw new Error('非 JSON 回應 (HTTP ' + r.status + ')，可能需要重新登入');
+      throw new Error('HTTP ' + r.status);
     }
     return r.json();
   })
   .then(function(data) {
+    sel.innerHTML = '<option value="">— 選擇節點 —</option>';
     if (data.nodes && data.nodes.length > 0) {
-      // 有節點 → 改為下拉選單
-      sel.innerHTML = '<option value="">— 選擇節點 —</option>';
       data.nodes.forEach(function(name) {
         const opt = document.createElement('option');
         opt.value = name;
         opt.textContent = name;
         sel.appendChild(opt);
       });
-      // 切換顯示：隱藏 input，顯示 select
-      inp.style.display = 'none';
-      inp.removeAttribute('name');
-      sel.setAttribute('name', 'node');
-      sel.style.display = '';
       sel.disabled = false;
-      // 若只有一個節點，自動選取
-      if (data.nodes.length === 1) {
-        sel.value = data.nodes[0];
-      }
-      status.innerHTML = '<span class="text-success">找到 ' + data.nodes.length + ' 個節點</span>';
+      if (data.nodes.length === 1) sel.value = data.nodes[0];
+      status.innerHTML = '<span class="text-muted">共 ' + data.nodes.length + ' 個節點</span>';
     } else {
-      // 無節點記錄 → 改為手動輸入
-      inp.readOnly = false;
-      inp.placeholder = '手動輸入節點名稱';
-      status.innerHTML = '<span class="text-warning">此叢集在 NetBox 無節點記錄，請手動輸入</span>';
+      sel.innerHTML = '<option value="">— 此叢集無節點資料 —</option>';
+      status.innerHTML = '<span class="text-warning">NetBox 無此叢集的節點記錄</span>';
     }
   })
   .catch(function(e) {
-    inp.readOnly = false;
-    inp.placeholder = '手動輸入節點名稱';
-    status.innerHTML = '<span class="text-danger">節點載入失敗（' + e.message + '），請手動輸入</span>';
-    console.error('loadNodes error:', e);
+    sel.innerHTML = '<option value="">— 載入失敗 —</option>';
+    status.innerHTML = '<span class="text-danger">載入失敗：' + e.message + '</span>';
+    console.error('loadNodes:', e);
   });
 }
 
