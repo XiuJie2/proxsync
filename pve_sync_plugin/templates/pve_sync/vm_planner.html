@@ -126,7 +126,7 @@
               </select>
               <input type="text" name="management_ip" id="mgmt_ip_input" class="form-control"
                      placeholder="或手動輸入 IP"
-                     onblur="probeIp('mgmt')">
+                     oninput="probeIp('mgmt')">
             </div>
             <div class="form-text" id="mgmt_ip_status"></div>
             <div id="mgmt_probe_result" class="mt-1"></div>
@@ -168,7 +168,7 @@
               </select>
               <input type="text" name="internet_ip" id="inet_ip_input" class="form-control"
                      placeholder="或手動輸入 IP"
-                     onblur="probeIp('inet')">
+                     oninput="probeIp('inet')">
             </div>
             <div class="form-text" id="inet_ip_status"></div>
             <div id="inet_probe_result" class="mt-1"></div>
@@ -396,9 +396,13 @@ function probeIp(nic) {
 
   if (!ip) { box.innerHTML = ''; return; }
 
-  // Debounce — avoid firing on every keystroke
+  // Debounce: wait until user stops typing (800ms), then probe
+  // Keeps probe result cleared while typing so stale result isn't shown
+  box.innerHTML = '';
   clearTimeout(_probeTimers[nic]);
-  _probeTimers[nic] = setTimeout(function() { _doProbe(nic, ip, box); }, 300);
+  // Only fire if IP looks complete (at least 7 chars: 1.1.1.1)
+  if (ip.length < 7) return;
+  _probeTimers[nic] = setTimeout(function() { _doProbe(nic, ip, box); }, 800);
 }
 
 function _doProbe(nic, ip, box) {
