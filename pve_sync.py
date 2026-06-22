@@ -119,6 +119,7 @@ class OptimizedPVEToNetBoxSync:
             'vms_by_node': {},
             'pools': {},
             'node_networks': {},
+            'failed_nodes': set(),  # nodes where VM API call failed — skip cleanup for these
         }
 
         self.error_log = []
@@ -361,6 +362,7 @@ class OptimizedPVEToNetBoxSync:
             except Exception as e:
                 print(f"  加載節點 {node_name} 的虛擬機失敗: {e}")
                 self.pve_cache['vms_by_node'][node_name] = []
+                self.pve_cache['failed_nodes'].add(node_name.lower())
         elapsed = time.time() - start_time
         print(f"✓ PVE 數據加載完成，耗時 {elapsed:.2f} 秒")
         print(f"  節點: {len(self.pve_cache['nodes'])} 個")
@@ -1124,40 +1126,88 @@ class OptimizedPVEToNetBoxSync:
         self.send_telegram_notification(new_msg)
         self._write_drift_event(vm_name, vm_id, 'vm_created', 'vmid', '', str(vm_id), notified=True)
 
-    def detect_deleted_vms(self, seen_vmids: set):
-        """比對先前已知 vmid 與本次同步的 vmid，偵測被刪除的 VM。"""
-        if not self.enhanced_mode or not self.state_db:
+    def detect_deleted_vms(self, seen_vmids: set, cluster_id: int = None):
+        """偵測並清理 NetBox 中已從 PVE 刪除的 VM（含 IP）。"""
+
+        # ── 1. 舊有：drift 通知（依賴 state_db）──
+        if self.enhanced_mode and self.state_db and self._known_vmids:
+            deleted_vmids = set(self._known_vmids.keys()) - seen_vmids
+            for vmid in deleted_vmids:
+                info = self._known_vmids[vmid]
+                vm_name = info.get('vm_name') or f"VM-{vmid}"
+                node_name = info.get('node') or 'unknown'
+                try:
+                    from pve_sync_plugin.models import PveDriftEvent
+                    if PveDriftEvent.objects.filter(
+                        vmid=vmid, cluster_name=self.cluster_name, drift_type='vm_deleted'
+                    ).exists():
+                        continue
+                except Exception:
+                    pass
+                print(f"🗑️ VM {vm_name} 刪除偵測 (ID: {vmid}, 上次節點: {node_name})")
+                self.stats['config_drifts_detected'] += 1
+                del_msg = (
+                    f"🗑️ <b>VM 刪除偵測</b>\n\n"
+                    f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vmid})\n"
+                    f"🔀 叢集: {self.cluster_name}\n"
+                    f"📌 上次節點: <code>{node_name}</code>\n"
+                    f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    f"⚠️ 此 VM 已從 Proxmox 中移除。"
+                )
+                self.send_telegram_notification(del_msg)
+                self._write_drift_event(vm_name, vmid, 'vm_deleted', 'vmid', str(vmid), '', notified=True)
+
+        # ── 2. 主動清理：刪除 NetBox 中已不存在於 PVE 的 VM 及其 IP ──
+        if not cluster_id:
             return
-        if not self._known_vmids:
-            return
-        deleted_vmids = set(self._known_vmids.keys()) - seen_vmids
-        if not deleted_vmids:
-            return
-        for vmid in deleted_vmids:
-            info = self._known_vmids[vmid]
-            vm_name = info.get('vm_name') or f"VM-{vmid}"
-            node_name = info.get('node') or 'unknown'
-            # 避免重複通知：若已有此 vmid 的 vm_deleted 記錄則跳過
-            try:
-                from pve_sync_plugin.models import PveDriftEvent
-                if PveDriftEvent.objects.filter(
-                    vmid=vmid, cluster_name=self.cluster_name, drift_type='vm_deleted'
-                ).exists():
-                    continue
-            except Exception:
-                pass
-            print(f"🗑️ VM {vm_name} 刪除偵測 (ID: {vmid}, 上次節點: {node_name})")
-            self.stats['config_drifts_detected'] += 1
-            del_msg = (
-                f"🗑️ <b>VM 刪除偵測</b>\n\n"
-                f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vmid})\n"
-                f"🔀 叢集: {self.cluster_name}\n"
-                f"📌 上次節點: <code>{node_name}</code>\n"
-                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                f"⚠️ 此 VM 已從 Proxmox 中移除。"
+
+        failed_nodes = self.pve_cache.get('failed_nodes', set())
+        if failed_nodes:
+            print(f"⚠️ 節點 API 失敗，跳過其 VM 清理: {failed_nodes}")
+
+        try:
+            from django.contrib.contenttypes.models import ContentType
+            from virtualization.models import VirtualMachine, VMInterface
+            from ipam.models import IPAddress
+
+            seen_serials = {str(v) for v in seen_vmids}
+            stale_vms = list(
+                VirtualMachine.objects
+                .filter(cluster_id=cluster_id)
+                .exclude(serial='')
+                .exclude(serial__isnull=True)
+                .exclude(serial__in=seen_serials)
+                .select_related('device')
             )
-            self.send_telegram_notification(del_msg)
-            self._write_drift_event(vm_name, vmid, 'vm_deleted', 'vmid', str(vmid), '', notified=True)
+
+            if not stale_vms:
+                return
+
+            vm_ct = ContentType.objects.get_for_model(VMInterface)
+            for vm in stale_vms:
+                device_name = vm.device.name.lower() if vm.device else None
+                if device_name and device_name in failed_nodes:
+                    print(f"  ⏭️ 跳過 {vm.name} (VMID {vm.serial})：節點 {vm.device.name} API 失敗")
+                    continue
+
+                iface_ids = list(
+                    VMInterface.objects.filter(virtual_machine=vm).values_list('id', flat=True)
+                )
+                ip_deleted = 0
+                if iface_ids:
+                    ip_deleted, _ = IPAddress.objects.filter(
+                        assigned_object_type=vm_ct,
+                        assigned_object_id__in=iface_ids,
+                    ).delete()
+
+                vm.delete()
+                print(f"  🗑️ 已刪除 VM {vm.name} (VMID {vm.serial}) 及 {ip_deleted} 個 IP")
+                self.stats['config_drifts_detected'] += 1
+
+        except Exception as exc:
+            import traceback
+            print(f"⚠️ 清理孤兒 VM 失敗: {exc}")
+            traceback.print_exc()
 
     def detect_config_drift(self, vm_id: int, vm_name: str, vm_config: Dict[str, Any],
                             current_tags: List[str], network_interfaces: List[Dict] = None,
@@ -1698,8 +1748,8 @@ class OptimizedPVEToNetBoxSync:
                 seen_vmids.add(int(vm['vmid']))
                 if self.process_virtual_machine(vm, device, cluster, force=node_is_new):
                     success_count += 1
-        # 偵測本次同步消失的 VM（已從 PVE 刪除）
-        self.detect_deleted_vms(seen_vmids)
+        # 偵測並清理本次同步消失的 VM（已從 PVE 刪除）
+        self.detect_deleted_vms(seen_vmids, cluster_id=cluster['id'])
         print(f"\n虛擬機同步完成: {success_count}/{total_count} 個虛擬機")
         return success_count > 0, success_count, total_count
 
