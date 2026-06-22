@@ -10,6 +10,7 @@ from pve_sync_plugin.models import (
     PvePluginSettings,
     PveSyncJob,
     PveWebhookEvent,
+    VmProvisioningLog,
 )
 
 
@@ -159,3 +160,20 @@ class PvePluginSettingsSerializer(NetBoxModelSerializer):
             "enable_backup_sync",
         ]
         # Never expose secrets via API
+
+
+class VmProvisioningLogSerializer(NetBoxModelSerializer):
+    url = serializers.HyperlinkedIdentityField(
+        view_name="plugins-api:pve_sync_plugin-api:vmprovisioninglog-detail",
+    )
+
+    class Meta:
+        model = VmProvisioningLog
+        fields = [
+            "id", "url", "display",
+            "vm_name", "vmid", "cluster_name", "node", "os_type",
+            "cpu", "ram_gb", "disk_gb",
+            "management_ip", "management_gw", "internet_ip", "internet_gw",
+            "status", "notes", "checklist",
+            "created", "last_updated",
+        ]
