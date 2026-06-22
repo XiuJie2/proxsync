@@ -189,12 +189,16 @@
 
 {# ── 提交按鈕 ── #}
 <div class="d-flex gap-2 mt-4 mb-4">
-  <button type="submit" name="action" value="reserve" class="btn btn-primary">
-    <i class="mdi mdi-lock-check"></i> 保留 IP 至 NetBox IPAM
+  <button type="submit" class="btn btn-primary">
+    <i class="mdi mdi-content-save"></i> 儲存規劃記錄
   </button>
   <button type="button" class="btn btn-outline-secondary" onclick="window.print()">
     <i class="mdi mdi-printer"></i> 列印清單
   </button>
+</div>
+<div class="alert alert-info py-2 small mb-2">
+  <i class="mdi mdi-information-outline"></i>
+  儲存後 IP 不會立即寫入 NetBox IPAM。待 PVE 叢集同步完成後，IP 資訊會自動從 PVE 同步過來。
 </div>
 
 </form>
@@ -215,7 +219,9 @@
           {% for item in "建立 VM 並設定正確的 VMID|附加兩張網卡（Management + Internet）|設定 CPU / 記憶體 / 磁碟|在 VM Options 啟用 QEMU Guest Agent|設定開機順序（CD → 磁碟）|掛載 ISO 安裝媒體"|split:"|" %}
             <li class="mb-1">
               <div class="form-check">
+                <input type="hidden" name="chk_exists_pve_{{ forloop.counter }}" value="1">
                 <input class="form-check-input checklist-item" type="checkbox"
+                       name="chk_pve_{{ forloop.counter }}" value="on"
                        id="chk_pve_{{ forloop.counter }}" data-key="pve_{{ forloop.counter }}">
                 <label class="form-check-label" for="chk_pve_{{ forloop.counter }}">{{ item }}</label>
               </div>
@@ -228,7 +234,9 @@
           {% for item in "安裝 OS|設定 hostname|建立管理員帳號|安裝 qemu-guest-agent|啟用 qemu-guest-agent 服務|設定 Management NIC 靜態 IP|設定 Internet NIC 靜態 IP"|split:"|" %}
             <li class="mb-1">
               <div class="form-check">
+                <input type="hidden" name="chk_exists_os_{{ forloop.counter }}" value="1">
                 <input class="form-check-input checklist-item" type="checkbox"
+                       name="chk_os_{{ forloop.counter }}" value="on"
                        id="chk_os_{{ forloop.counter }}" data-key="os_{{ forloop.counter }}">
                 <label class="form-check-label" for="chk_os_{{ forloop.counter }}">{{ item }}</label>
               </div>
@@ -252,7 +260,9 @@
           {% for item in "ping 管理閘道|ping 外部閘道|ping 8.8.8.8（網際網路）|SSH 連線測試|DNS 解析測試（nslookup google.com）"|split:"|" %}
             <li class="mb-1">
               <div class="form-check">
+                <input type="hidden" name="chk_exists_net_{{ forloop.counter }}" value="1">
                 <input class="form-check-input checklist-item" type="checkbox"
+                       name="chk_net_{{ forloop.counter }}" value="on"
                        id="chk_net_{{ forloop.counter }}" data-key="net_{{ forloop.counter }}">
                 <label class="form-check-label" for="chk_net_{{ forloop.counter }}">{{ item }}</label>
               </div>
@@ -265,7 +275,9 @@
           {% for item in "更新所有套件（apt upgrade / dnf upgrade）|啟用防火牆（UFW / firewalld）|設定 SSH 金鑰驗證|停用 SSH 密碼登入（PasswordAuthentication no）|停用 root SSH 登入（PermitRootLogin no）|啟用自動安全更新（unattended-upgrades）"|split:"|" %}
             <li class="mb-1">
               <div class="form-check">
+                <input type="hidden" name="chk_exists_sec_{{ forloop.counter }}" value="1">
                 <input class="form-check-input checklist-item" type="checkbox"
+                       name="chk_sec_{{ forloop.counter }}" value="on"
                        id="chk_sec_{{ forloop.counter }}" data-key="sec_{{ forloop.counter }}">
                 <label class="form-check-label" for="chk_sec_{{ forloop.counter }}">{{ item }}</label>
               </div>
@@ -278,7 +290,9 @@
           {% for item in "將 VM 加入 PBS 備份排程|執行一次手動備份確認|驗證備份可還原|在 NetBox 記錄備份資訊"|split:"|" %}
             <li class="mb-1">
               <div class="form-check">
+                <input type="hidden" name="chk_exists_bak_{{ forloop.counter }}" value="1">
                 <input class="form-check-input checklist-item" type="checkbox"
+                       name="chk_bak_{{ forloop.counter }}" value="on"
                        id="chk_bak_{{ forloop.counter }}" data-key="bak_{{ forloop.counter }}">
                 <label class="form-check-label" for="chk_bak_{{ forloop.counter }}">{{ item }}</label>
               </div>

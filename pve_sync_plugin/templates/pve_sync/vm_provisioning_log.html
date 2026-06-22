@@ -1,0 +1,279 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+{% with checked=object.checklist_progress.0 total=object.checklist_progress.1 %}
+
+{# ── Status bar ── #}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <span class="badge text-bg-{{ object.status_badge }} fs-6">{{ object.get_status_display }}</span>
+  {% if total > 0 %}
+    <div class="flex-grow-1" style="max-width:300px">
+      <div class="progress" style="height:8px">
+        <div class="progress-bar bg-{% if checked == total %}success{% else %}primary{% endif %}"
+             style="width:{% widthratio checked total 100 %}%"></div>
+      </div>
+    </div>
+    <small class="text-muted">清單進度 {{ checked }}/{{ total }}</small>
+  {% endif %}
+</div>
+
+<div class="row g-4">
+  {# ── VM 資訊 ── #}
+  <div class="col-md-6">
+    <div class="card">
+      <h5 class="card-header"><i class="mdi mdi-server"></i> VM 資訊</h5>
+      <table class="table table-hover attr-table">
+        <tr><th>VM 名稱</th><td>{{ object.vm_name }}</td></tr>
+        <tr><th>VMID</th><td>{{ object.vmid|default:"—" }}</td></tr>
+        <tr><th>叢集</th><td>{{ object.cluster_name|default:"—" }}</td></tr>
+        <tr><th>節點</th><td>{{ object.node|default:"—" }}</td></tr>
+        <tr><th>作業系統</th><td>{{ object.os_type|default:"—" }}</td></tr>
+        <tr><th>CPU / RAM / 磁碟</th>
+          <td>
+            {% if object.cpu %}{{ object.cpu }} vCPU{% endif %}
+            {% if object.ram_gb %} / {{ object.ram_gb }} GB RAM{% endif %}
+            {% if object.disk_gb %} / {{ object.disk_gb }} GB{% endif %}
+            {% if not object.cpu and not object.ram_gb and not object.disk_gb %}—{% endif %}
+          </td>
+        </tr>
+        <tr><th>建立時間</th><td>{{ object.created|date:"Y-m-d H:i" }}</td></tr>
+      </table>
+    </div>
+  </div>
+
+  {# ── IP 資訊 ── #}
+  <div class="col-md-6">
+    <div class="card">
+      <h5 class="card-header"><i class="mdi mdi-ip-network"></i> IP 配置</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th><span class="badge bg-primary">NIC 1</span> Management IP</th>
+          <td>
+            {% if object.management_ip %}<code>{{ object.management_ip }}</code>
+              {% if object.management_gw %}<small class="text-muted ms-2">GW: {{ object.management_gw }}</small>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th><span class="badge bg-success">NIC 2</span> Internet IP</th>
+          <td>
+            {% if object.internet_ip %}<code>{{ object.internet_ip }}</code>
+              {% if object.internet_gw %}<small class="text-muted ms-2">GW: {{ object.internet_gw }}</small>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+      </table>
+      <div class="card-footer text-muted small">
+        <i class="mdi mdi-information-outline"></i>
+        IP 將在 PVE 叢集同步後自動寫入 NetBox IPAM
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Update form ── #}
+<form method="post" class="mt-4">
+{% csrf_token %}
+<div class="row g-4">
+
+  {# ── Checklist ── #}
+  <div class="col-md-7">
+    <div class="card">
+      <h5 class="card-header"><i class="mdi mdi-clipboard-check-outline"></i> 部署清單</h5>
+      <div class="card-body">
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-cog"></i> Proxmox VM 設定</h6>
+        <ul class="list-unstyled ms-2 mb-3">
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_pve_1" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_pve_1" value="on" id="lc_pve_1" {% if object.checklist.chk_pve_1 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_pve_1">建立 VM 並設定正確的 VMID</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_pve_2" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_pve_2" value="on" id="lc_pve_2" {% if object.checklist.chk_pve_2 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_pve_2">附加兩張網卡（Management + Internet）</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_pve_3" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_pve_3" value="on" id="lc_pve_3" {% if object.checklist.chk_pve_3 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_pve_3">設定 CPU / 記憶體 / 磁碟</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_pve_4" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_pve_4" value="on" id="lc_pve_4" {% if object.checklist.chk_pve_4 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_pve_4">在 VM Options 啟用 QEMU Guest Agent</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_pve_5" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_pve_5" value="on" id="lc_pve_5" {% if object.checklist.chk_pve_5 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_pve_5">設定開機順序（CD → 磁碟）</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_pve_6" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_pve_6" value="on" id="lc_pve_6" {% if object.checklist.chk_pve_6 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_pve_6">掛載 ISO 安裝媒體</label>
+          </div></li>
+        </ul>
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-linux"></i> 作業系統安裝</h6>
+        <ul class="list-unstyled ms-2 mb-3">
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_os_1" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_os_1" value="on" id="lc_os_1" {% if object.checklist.chk_os_1 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_os_1">安裝 OS</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_os_2" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_os_2" value="on" id="lc_os_2" {% if object.checklist.chk_os_2 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_os_2">設定 hostname</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_os_3" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_os_3" value="on" id="lc_os_3" {% if object.checklist.chk_os_3 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_os_3">建立管理員帳號</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_os_4" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_os_4" value="on" id="lc_os_4" {% if object.checklist.chk_os_4 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_os_4">安裝 qemu-guest-agent</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_os_5" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_os_5" value="on" id="lc_os_5" {% if object.checklist.chk_os_5 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_os_5">啟用 qemu-guest-agent 服務</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_os_6" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_os_6" value="on" id="lc_os_6" {% if object.checklist.chk_os_6 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_os_6">設定 Management NIC 靜態 IP</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_os_7" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_os_7" value="on" id="lc_os_7" {% if object.checklist.chk_os_7 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_os_7">設定 Internet NIC 靜態 IP</label>
+          </div></li>
+        </ul>
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-network"></i> 網路驗證</h6>
+        <ul class="list-unstyled ms-2 mb-3">
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_net_1" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_net_1" value="on" id="lc_net_1" {% if object.checklist.chk_net_1 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_net_1">ping 管理閘道</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_net_2" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_net_2" value="on" id="lc_net_2" {% if object.checklist.chk_net_2 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_net_2">ping 外部閘道</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_net_3" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_net_3" value="on" id="lc_net_3" {% if object.checklist.chk_net_3 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_net_3">ping 8.8.8.8（網際網路）</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_net_4" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_net_4" value="on" id="lc_net_4" {% if object.checklist.chk_net_4 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_net_4">SSH 連線測試</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_net_5" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_net_5" value="on" id="lc_net_5" {% if object.checklist.chk_net_5 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_net_5">DNS 解析測試（nslookup google.com）</label>
+          </div></li>
+        </ul>
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-shield-check"></i> 安全強化</h6>
+        <ul class="list-unstyled ms-2 mb-3">
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_sec_1" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_sec_1" value="on" id="lc_sec_1" {% if object.checklist.chk_sec_1 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_sec_1">更新所有套件（apt upgrade / dnf upgrade）</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_sec_2" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_sec_2" value="on" id="lc_sec_2" {% if object.checklist.chk_sec_2 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_sec_2">啟用防火牆（UFW / firewalld）</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_sec_3" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_sec_3" value="on" id="lc_sec_3" {% if object.checklist.chk_sec_3 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_sec_3">設定 SSH 金鑰驗證</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_sec_4" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_sec_4" value="on" id="lc_sec_4" {% if object.checklist.chk_sec_4 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_sec_4">停用 SSH 密碼登入（PasswordAuthentication no）</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_sec_5" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_sec_5" value="on" id="lc_sec_5" {% if object.checklist.chk_sec_5 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_sec_5">停用 root SSH 登入（PermitRootLogin no）</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_sec_6" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_sec_6" value="on" id="lc_sec_6" {% if object.checklist.chk_sec_6 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_sec_6">啟用自動安全更新（unattended-upgrades）</label>
+          </div></li>
+        </ul>
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-backup-restore"></i> 備份</h6>
+        <ul class="list-unstyled ms-2">
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_bak_1" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_bak_1" value="on" id="lc_bak_1" {% if object.checklist.chk_bak_1 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_bak_1">將 VM 加入 PBS 備份排程</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_bak_2" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_bak_2" value="on" id="lc_bak_2" {% if object.checklist.chk_bak_2 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_bak_2">執行一次手動備份確認</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_bak_3" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_bak_3" value="on" id="lc_bak_3" {% if object.checklist.chk_bak_3 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_bak_3">驗證備份可還原</label>
+          </div></li>
+          <li class="mb-1"><div class="form-check">
+            <input type="hidden" name="chk_exists_bak_4" value="1">
+            <input class="form-check-input" type="checkbox" name="chk_bak_4" value="on" id="lc_bak_4" {% if object.checklist.chk_bak_4 %}checked{% endif %}>
+            <label class="form-check-label" for="lc_bak_4">在 NetBox 記錄備份資訊</label>
+          </div></li>
+        </ul>
+
+      </div>
+    </div>
+  </div>
+
+  {# ── Status & Notes ── #}
+  <div class="col-md-5">
+    <div class="card mb-3">
+      <h5 class="card-header"><i class="mdi mdi-flag"></i> 狀態</h5>
+      <div class="card-body">
+        <select name="status" class="form-select">
+          {% for val, lbl in object.STATUS_CHOICES %}
+            <option value="{{ val }}" {% if object.status == val %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="card">
+      <h5 class="card-header"><i class="mdi mdi-note-text"></i> 備註</h5>
+      <div class="card-body">
+        <textarea name="notes" class="form-control" rows="8">{{ object.notes }}</textarea>
+      </div>
+    </div>
+    <div class="mt-3">
+      <button type="submit" class="btn btn-primary">
+        <i class="mdi mdi-content-save"></i> 儲存變更
+      </button>
+    </div>
+  </div>
+
+</div>
+</form>
+
+{% endwith %}
+{% endblock %}

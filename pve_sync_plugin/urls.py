@@ -10,7 +10,7 @@ from django.urls import path
 from netbox.views.generic import ObjectChangeLogView
 
 from . import views
-from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveWebhookEvent
+from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveWebhookEvent, VmProvisioningLog
 
 app_name = "pve_sync_plugin"
 
@@ -185,6 +185,13 @@ urlpatterns = [
     path("vm-planner/", views.VmPlannerView.as_view(), name="vm-planner"),
     path("vm-planner/free-ips/<int:range_id>/", views.VmPlannerFreeIpsApi.as_view(), name="vm-planner-free-ips"),
     path("vm-planner/check-ip/", views.VmPlannerCheckIpApi.as_view(), name="vm-planner-check-ip"),
+
+    # VM Provisioning Logs
+    path("provisioning/", views.VmProvisioningLogListView.as_view(), name="vmprovisioninglog_list"),
+    path("provisioning/<int:pk>/", views.VmProvisioningLogView.as_view(), name="vmprovisioninglog"),
+    path("provisioning/<int:pk>/delete/", views.VmProvisioningLogDeleteView.as_view(), name="vmprovisioninglog_delete"),
+    path("provisioning/<int:pk>/changelog/", ObjectChangeLogView.as_view(),
+         name="vmprovisioninglog_changelog", kwargs={"model": VmProvisioningLog}),
 
     # Webhook receiver (external, no auth, HMAC-verified)
     path("webhook/", views.webhook_receiver, name="webhook"),

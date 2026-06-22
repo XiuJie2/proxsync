@@ -11,6 +11,7 @@ from .models import (
     PveDriftEvent,
     PveSyncJob,
     PveWebhookEvent,
+    VmProvisioningLog,
 )
 
 
@@ -276,3 +277,33 @@ class PveBackupStatusTable(NetBoxTable):
             "last_backup",
             "backup_age_days",
         )
+
+
+# ---------------------------------------------------------------------------
+# VmProvisioningLog
+# ---------------------------------------------------------------------------
+
+class VmProvisioningLogTable(NetBoxTable):
+    vm_name      = tables.Column(linkify=True, verbose_name="VM 名稱")
+    vmid         = tables.Column(verbose_name="VMID")
+    cluster_name = tables.Column(verbose_name="叢集")
+    status       = columns.ChoiceFieldColumn(verbose_name="狀態")
+    management_ip = tables.Column(verbose_name="Management IP")
+    internet_ip  = tables.Column(verbose_name="Internet IP")
+    progress     = tables.Column(empty_values=(), verbose_name="清單進度", orderable=False)
+    actions      = columns.ActionsColumn(actions=("delete",))
+
+    def render_progress(self, record):
+        checked, total = record.checklist_progress
+        if total == 0:
+            return "—"
+        pct = int(checked / total * 100)
+        color = "success" if pct == 100 else "warning" if pct > 0 else "secondary"
+        return f"{checked}/{total} ({pct}%)"
+
+    class Meta(NetBoxTable.Meta):
+        model = VmProvisioningLog
+        fields = ("pk", "id", "vm_name", "vmid", "cluster_name", "status",
+                  "management_ip", "internet_ip", "progress", "created")
+        default_columns = ("vm_name", "vmid", "cluster_name", "status",
+                           "management_ip", "internet_ip", "progress", "created")

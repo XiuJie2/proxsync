@@ -463,3 +463,56 @@ class PbsServerConfig(NetBoxModel):
             host = host.split('://', 1)[1]
         host = host.split(':')[0]
         return host
+
+
+class VmProvisioningLog(NetBoxModel):
+    """Planning record created in the VM Provisioning Planner before PVE sync."""
+
+    STATUS_CHOICES = [
+        ("planning",     "規劃中"),
+        ("in_progress",  "部署中"),
+        ("completed",    "完成"),
+    ]
+
+    vm_name          = models.CharField(max_length=100, verbose_name="VM 名稱")
+    vmid             = models.IntegerField(null=True, blank=True, verbose_name="VMID")
+    cluster_name     = models.CharField(max_length=100, blank=True, verbose_name="叢集")
+    node             = models.CharField(max_length=100, blank=True, verbose_name="節點")
+    os_type          = models.CharField(max_length=50,  blank=True, verbose_name="作業系統")
+    cpu              = models.IntegerField(null=True, blank=True, verbose_name="CPU")
+    ram_gb           = models.IntegerField(null=True, blank=True, verbose_name="記憶體 (GB)")
+    disk_gb          = models.IntegerField(null=True, blank=True, verbose_name="磁碟 (GB)")
+    management_ip    = models.CharField(max_length=50,  blank=True, verbose_name="Management IP")
+    management_gw    = models.CharField(max_length=50,  blank=True, verbose_name="Management 閘道")
+    internet_ip      = models.CharField(max_length=50,  blank=True, verbose_name="Internet IP")
+    internet_gw      = models.CharField(max_length=50,  blank=True, verbose_name="Internet 閘道")
+    status           = models.CharField(max_length=20, default="planning",
+                                        choices=STATUS_CHOICES, verbose_name="狀態")
+    notes            = models.TextField(blank=True, verbose_name="備註")
+    checklist        = models.JSONField(default=dict, blank=True, verbose_name="清單狀態")
+
+    class Meta:
+        ordering = ["-created"]
+        verbose_name = "VM Provisioning Log"
+
+    def __str__(self):
+        vmid_str = f" (VMID {self.vmid})" if self.vmid else ""
+        return f"{self.vm_name}{vmid_str}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:pve_sync_plugin:vmprovisioninglog", args=[self.pk])
+
+    @property
+    def status_badge(self):
+        return {"planning": "info", "in_progress": "warning", "completed": "success"}.get(
+            self.status, "secondary"
+        )
+
+    @property
+    def checklist_progress(self):
+        """Return (checked_count, total_count)."""
+        if not self.checklist:
+            return 0, 0
+        total   = len(self.checklist)
+        checked = sum(1 for v in self.checklist.values() if v)
+        return checked, total

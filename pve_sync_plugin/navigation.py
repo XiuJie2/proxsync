@@ -71,8 +71,8 @@ pbs_item = PluginMenuItem(
 
 
 vm_planner_item = PluginMenuItem(
-    link="plugins:pve_sync_plugin:vm-planner",
-    link_text="VM Provisioning",
+    link="plugins:pve_sync_plugin:vmprovisioninglog_list",
+    link_text="Provisioning Logs",
     buttons=(
         PluginMenuButton(
             "plugins:pve_sync_plugin:vm-planner",

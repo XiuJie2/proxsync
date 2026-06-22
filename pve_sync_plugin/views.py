@@ -480,45 +480,111 @@ class VmPlannerView(PermissionRequiredMixin, View):
         return render(request, "pve_sync/vm_planner.html", self._context(request))
 
     def post(self, request):
-        from ipam.models import IPRange, IPAddress
-        import netaddr
+        from .models import VmProvisioningLog
 
-        vm_name = request.POST.get("vm_name", "").strip()
-        reserved = []
-        errors = []
-
-        for nic in ("management", "internet"):
-            ip_str = request.POST.get(f"{nic}_ip", "").strip()
-            range_id = request.POST.get(f"{nic}_ip_range", "").strip()
-            if not ip_str or not range_id:
-                continue
+        def _int(key):
             try:
-                ip_range = IPRange.objects.get(pk=range_id)
-                prefix_len = ip_range.start_address.prefixlen
-                cidr = f"{ip_str}/{prefix_len}"
-                _, created = IPAddress.objects.get_or_create(
-                    address=cidr,
-                    defaults={
-                        "status": "active",
-                        "description": f"{vm_name} - {nic.capitalize()}",
-                        "dns_name": vm_name.lower().replace(" ", "-") if vm_name else "",
-                    },
-                )
-                if created:
-                    reserved.append(f"{nic.capitalize()}: {cidr}")
-                else:
-                    errors.append(f"{nic.capitalize()} IP {ip_str} 已被使用")
-            except IPRange.DoesNotExist:
-                errors.append(f"找不到 IP Range (id={range_id})")
-            except Exception as exc:
-                errors.append(f"{nic.capitalize()}: {exc}")
+                return int(request.POST.get(key, "").strip()) or None
+            except (ValueError, TypeError):
+                return None
 
-        for msg in errors:
-            messages.error(request, msg)
-        if reserved:
-            messages.success(request, "IP 已保留：" + "，".join(reserved))
+        # Collect checklist state from form (checkboxes send value only when checked)
+        checklist = {}
+        for key, val in request.POST.items():
+            if key.startswith("chk_"):
+                checklist[key] = (val == "on")
+        # Also capture unchecked boxes submitted as hidden companion fields
+        for key, val in request.POST.items():
+            if key.startswith("chk_exists_") and key.replace("chk_exists_", "chk_") not in checklist:
+                checklist[key.replace("chk_exists_", "chk_")] = False
 
-        return render(request, "pve_sync/vm_planner.html", self._context(request))
+        log = VmProvisioningLog.objects.create(
+            vm_name       = request.POST.get("vm_name", "").strip(),
+            vmid          = _int("vmid"),
+            cluster_name  = request.POST.get("cluster", "").strip(),
+            node          = request.POST.get("node", "").strip(),
+            os_type       = request.POST.get("os_type", "").strip(),
+            cpu           = _int("cpu"),
+            ram_gb        = _int("ram_gb"),
+            disk_gb       = _int("disk_gb"),
+            management_ip = request.POST.get("management_ip", "").strip(),
+            management_gw = request.POST.get("management_gateway", "").strip(),
+            internet_ip   = request.POST.get("internet_ip", "").strip(),
+            internet_gw   = request.POST.get("internet_gateway", "").strip(),
+            notes         = request.POST.get("notes", "").strip(),
+            checklist     = checklist,
+        )
+        messages.success(request, f"規劃記錄 #{log.pk}「{log.vm_name}」已儲存。")
+        return redirect(log.get_absolute_url())
+
+
+class VmProvisioningLogListView(generic.ObjectListView):
+    queryset = None
+    table    = None
+
+    def get_queryset(self, request):
+        from .models import VmProvisioningLog
+        return VmProvisioningLog.objects.all()
+
+    def get_table(self, *args, **kwargs):
+        from .tables import VmProvisioningLogTable
+        return VmProvisioningLogTable
+
+    def get(self, request):
+        from .models import VmProvisioningLog
+        from .tables import VmProvisioningLogTable
+        qs = VmProvisioningLog.objects.all()
+        table = VmProvisioningLogTable(qs, user=request.user)
+        return render(request, "generic/object_list.html", {
+            "model": VmProvisioningLog,
+            "table": table,
+            "actions": ("delete",),
+        })
+
+
+class VmProvisioningLogView(PermissionRequiredMixin, View):
+    permission_required = "pve_sync_plugin.view_pveclusterconfig"
+
+    def get(self, request, pk):
+        from .models import VmProvisioningLog
+        log = get_object_or_404(VmProvisioningLog, pk=pk)
+        return render(request, "pve_sync/vm_provisioning_log.html", {"object": log})
+
+    def post(self, request, pk):
+        """Update status or checklist from the detail page."""
+        from .models import VmProvisioningLog
+        log = get_object_or_404(VmProvisioningLog, pk=pk)
+
+        if "status" in request.POST:
+            new_status = request.POST.get("status")
+            if new_status in dict(VmProvisioningLog.STATUS_CHOICES):
+                log.status = new_status
+
+        # Update checklist items sent from the detail page
+        new_checklist = dict(log.checklist)
+        for key, val in request.POST.items():
+            if key.startswith("chk_"):
+                new_checklist[key] = (val == "on")
+        # Unchecked items arrive as companion hidden fields
+        for key, val in request.POST.items():
+            if key.startswith("chk_exists_"):
+                chk_key = key.replace("chk_exists_", "chk_")
+                if chk_key not in request.POST:
+                    new_checklist[chk_key] = False
+
+        log.checklist = new_checklist
+        log.notes = request.POST.get("notes", log.notes)
+        log.save()
+        messages.success(request, "記錄已更新。")
+        return redirect(log.get_absolute_url())
+
+
+class VmProvisioningLogDeleteView(generic.ObjectDeleteView):
+    queryset = None
+
+    def get_queryset(self):
+        from .models import VmProvisioningLog
+        return VmProvisioningLog.objects.all()
 
 
 class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
