@@ -1183,12 +1183,17 @@ class OptimizedPVEToNetBoxSync:
             if not stale_vms:
                 return
 
+            from pve_sync_plugin.models import PveDriftEvent
+
             vm_ct = ContentType.objects.get_for_model(VMInterface)
             for vm in stale_vms:
                 device_name = vm.device.name.lower() if vm.device else None
                 if device_name and device_name in failed_nodes:
                     print(f"  ⏭️ 跳過 {vm.name} (VMID {vm.serial})：節點 {vm.device.name} API 失敗")
                     continue
+
+                vm_name_str = vm.name
+                vmid_int = int(vm.serial)
 
                 iface_ids = list(
                     VMInterface.objects.filter(virtual_machine=vm).values_list('id', flat=True)
@@ -1201,8 +1206,29 @@ class OptimizedPVEToNetBoxSync:
                     ).delete()
 
                 vm.delete()
-                print(f"  🗑️ 已刪除 VM {vm.name} (VMID {vm.serial}) 及 {ip_deleted} 個 IP")
+                print(f"  🗑️ 已刪除 VM {vm_name_str} (VMID {vmid_int}) 及 {ip_deleted} 個 IP")
                 self.stats['config_drifts_detected'] += 1
+
+                # 寫入漂移事件（避免與 section 1 重複）
+                already_logged = PveDriftEvent.objects.filter(
+                    vmid=vmid_int,
+                    cluster_name=self.cluster_name,
+                    drift_type='vm_deleted',
+                ).exists()
+                if not already_logged:
+                    self._write_drift_event(
+                        vm_name_str, vmid_int, 'vm_deleted', 'vmid',
+                        str(vmid_int), '', notified=False,
+                    )
+                    del_msg = (
+                        f"🗑️ <b>VM 已從 NetBox 清除</b>\n\n"
+                        f"🖥️ 名稱: <b>{vm_name_str}</b> (VMID: {vmid_int})\n"
+                        f"🔀 叢集: {self.cluster_name}\n"
+                        f"🧹 已清除 IP 記錄: {ip_deleted} 個\n"
+                        f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                        f"⚠️ 此 VM 已從 Proxmox 刪除，NetBox 記錄已自動移除。"
+                    )
+                    self.send_telegram_notification(del_msg)
 
         except Exception as exc:
             import traceback
