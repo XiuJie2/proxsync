@@ -1299,8 +1299,10 @@ class OptimizedPVEToNetBoxSync:
                 status    = task.get("status", "") or ""
                 vm_name   = vmid_to_name.get(vmid, f"VM-{vmid}")
 
-                start_dt = timezone.datetime.fromtimestamp(start_ts, tz=timezone.utc) if start_ts else timezone.now()
-                end_dt   = timezone.datetime.fromtimestamp(end_ts,   tz=timezone.utc) if end_ts   else None
+                import datetime as _dt
+                _utc = _dt.timezone.utc
+                start_dt = _dt.datetime.fromtimestamp(start_ts, tz=_utc) if start_ts else timezone.now()
+                end_dt   = _dt.datetime.fromtimestamp(end_ts,   tz=_utc) if end_ts   else None
 
                 log = PveVmTaskLog.objects.create(
                     upid=upid,
