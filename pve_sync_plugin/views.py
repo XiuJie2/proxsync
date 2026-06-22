@@ -576,6 +576,7 @@ class VmPlannerNodesApi(PermissionRequiredMixin, View):
     """AJAX — return the device nodes for a given PVE cluster name."""
 
     permission_required = "pve_sync_plugin.view_pveclusterconfig"
+    raise_exception = True  # Return 403 JSON-safe instead of redirecting to login
 
     def get(self, request):
         from dcim.models import Device
