@@ -49,6 +49,7 @@ from .models import (
     PvePluginSettings,
     PveSyncJob,
     PveWebhookEvent,
+    VmProvisioningLog,
 )
 from .tables import (
     PbsServerConfigTable,
@@ -57,6 +58,7 @@ from .tables import (
     PveDriftEventTable,
     PveSyncJobTable,
     PveWebhookEventTable,
+    VmProvisioningLogTable,
 )
 from .tasks import enqueue_webhook_event
 from .utils import get_plugin_config
@@ -480,8 +482,6 @@ class VmPlannerView(PermissionRequiredMixin, View):
         return render(request, "pve_sync/vm_planner.html", self._context(request))
 
     def post(self, request):
-        from .models import VmProvisioningLog
-
         def _int(key):
             try:
                 return int(request.POST.get(key, "").strip()) or None
@@ -519,40 +519,18 @@ class VmPlannerView(PermissionRequiredMixin, View):
 
 
 class VmProvisioningLogListView(generic.ObjectListView):
-    queryset = None
-    table    = None
-
-    def get_queryset(self, request):
-        from .models import VmProvisioningLog
-        return VmProvisioningLog.objects.all()
-
-    def get_table(self, *args, **kwargs):
-        from .tables import VmProvisioningLogTable
-        return VmProvisioningLogTable
-
-    def get(self, request):
-        from .models import VmProvisioningLog
-        from .tables import VmProvisioningLogTable
-        qs = VmProvisioningLog.objects.all()
-        table = VmProvisioningLogTable(qs, user=request.user)
-        return render(request, "generic/object_list.html", {
-            "model": VmProvisioningLog,
-            "table": table,
-            "actions": ("delete",),
-        })
+    queryset = VmProvisioningLog.objects.all()
+    table    = VmProvisioningLogTable
 
 
 class VmProvisioningLogView(PermissionRequiredMixin, View):
     permission_required = "pve_sync_plugin.view_pveclusterconfig"
 
     def get(self, request, pk):
-        from .models import VmProvisioningLog
         log = get_object_or_404(VmProvisioningLog, pk=pk)
         return render(request, "pve_sync/vm_provisioning_log.html", {"object": log})
 
     def post(self, request, pk):
-        """Update status or checklist from the detail page."""
-        from .models import VmProvisioningLog
         log = get_object_or_404(VmProvisioningLog, pk=pk)
 
         if "status" in request.POST:
@@ -580,11 +558,7 @@ class VmProvisioningLogView(PermissionRequiredMixin, View):
 
 
 class VmProvisioningLogDeleteView(generic.ObjectDeleteView):
-    queryset = None
-
-    def get_queryset(self):
-        from .models import VmProvisioningLog
-        return VmProvisioningLog.objects.all()
+    queryset = VmProvisioningLog.objects.all()
 
 
 class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
