@@ -574,40 +574,60 @@ class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
 
 
 class VmPlannerCheckIpApi(PermissionRequiredMixin, View):
-    """AJAX — probe whether an IP is actually free on the network (ARP → ping fallback)."""
+    """AJAX — check IP availability: IPAM first, then ARP/ping network probe."""
 
     permission_required = "pve_sync_plugin.view_pveclusterconfig"
 
     def get(self, request):
         import subprocess
         import shutil
+        import re
         import netaddr
+        from ipam.models import IPAddress as NetBoxIPAddress
 
         ip_str = request.GET.get("ip", "").strip()
         try:
-            ip = netaddr.IPAddress(ip_str)
-            if ip.version != 4:
+            ip_obj = netaddr.IPAddress(ip_str)
+            if ip_obj.version != 4:
                 raise ValueError("IPv6 not supported")
         except Exception:
             return JsonResponse({"error": "Invalid IP address"}, status=400)
 
-        ip_str = str(ip)
+        ip_str = str(ip_obj)
+
+        # ── 1. IPAM check (authoritative) ──
+        # An IP can be stored as any prefix length (e.g. /16, /24, /32).
+        # Compare only the host part to find any existing allocation.
+        ipam_entry = None
+        for addr in NetBoxIPAddress.objects.all().values_list("address", flat=True):
+            if str(addr.ip) == ip_str:
+                ipam_entry = str(addr)   # e.g. "172.17.202.11/16"
+                break
+
+        if ipam_entry:
+            return JsonResponse({
+                "ip": ip_str,
+                "status": "in_use",
+                "source": "ipam",
+                "detail": f"已在 NetBox IPAM 分配 ({ipam_entry})",
+            })
+
+        # ── 2. Network probe — ARP (Layer-2) ──
         status = "unknown"
-        method = "none"
+        source = "none"
         detail = ""
 
-        # ── 1. ARP (Layer-2, more reliable on LAN) ──
         if shutil.which("arping"):
             try:
-                # Resolve the outbound interface for this destination
                 route = subprocess.run(
                     ["ip", "route", "get", ip_str],
                     capture_output=True, text=True, timeout=3,
                 )
                 iface = None
-                for part in route.stdout.split():
-                    if part == "dev":
-                        iface = route.stdout.split("dev")[1].split()[0]
+                parts = route.stdout.split()
+                for i, p in enumerate(parts):
+                    if p == "dev" and i + 1 < len(parts):
+                        iface = parts[i + 1]
                         break
 
                 cmd = ["arping", "-c", "1", "-w", "2", ip_str]
@@ -615,42 +635,41 @@ class VmPlannerCheckIpApi(PermissionRequiredMixin, View):
                     cmd = ["arping", "-c", "1", "-w", "2", "-i", iface, ip_str]
 
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-                method = "arp"
+                source = "arp"
                 if result.returncode == 0 and "bytes from" in result.stdout:
                     status = "in_use"
-                    # Extract MAC from arping output
-                    import re
                     mac_match = re.search(r"from\s+([\da-fA-F:]{17})", result.stdout)
                     mac = mac_match.group(1) if mac_match else "unknown MAC"
-                    detail = f"ARP 回應來自 {mac}"
+                    detail = f"ARP 有回應，MAC: {mac}（未記錄於 IPAM）"
                 else:
                     status = "free"
-                    detail = "ARP 無回應"
+                    detail = "IPAM 未分配，ARP 無回應"
             except Exception as exc:
                 logger.debug("arping probe failed for %s: %s", ip_str, exc)
 
-        # ── 2. Ping fallback ──
-        if method == "none":
+        # ── 3. Ping fallback ──
+        if source == "none":
             try:
                 result = subprocess.run(
                     ["ping", "-c", "1", "-W", "1", "-q", ip_str],
                     capture_output=True, text=True, timeout=4,
                 )
-                method = "ping"
+                source = "ping"
                 if result.returncode == 0:
                     status = "in_use"
-                    detail = "Ping 有回應"
+                    detail = "Ping 有回應（未記錄於 IPAM）"
                 else:
                     status = "free"
-                    detail = "Ping 無回應"
+                    detail = "IPAM 未分配，Ping 無回應"
             except Exception as exc:
                 logger.debug("ping probe failed for %s: %s", ip_str, exc)
-                detail = "探測工具不可用"
+                source = "none"
+                detail = "IPAM 未分配，無法探測網路"
 
         return JsonResponse({
             "ip": ip_str,
             "status": status,   # "free" | "in_use" | "unknown"
-            "method": method,   # "arp" | "ping" | "none"
+            "source": source,   # "ipam" | "arp" | "ping" | "none"
             "detail": detail,
         })
 

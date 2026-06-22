@@ -428,16 +428,17 @@ function _doProbe(nic, ip, box, gen) {
       return;
     }
 
-    const methodLabel = data.method === 'arp' ? 'ARP' : data.method === 'ping' ? 'Ping' : '?';
-
     if (data.status === 'in_use') {
+      const sourceLabel = data.source === 'ipam' ? '<i class="mdi mdi-database"></i> IPAM 已分配' :
+                          data.source === 'arp'  ? '<i class="mdi mdi-lan"></i> ARP 有回應' :
+                                                   '<i class="mdi mdi-signal"></i> Ping 有回應';
       box.innerHTML =
-        '<span class="badge bg-danger"><i class="mdi mdi-alert-circle"></i> IP 正在使用中</span> ' +
-        '<small class="text-danger">' + methodLabel + ' 有回應 — ' + data.detail + '。請改選其他 IP。</small>';
+        '<span class="badge bg-danger"><i class="mdi mdi-alert-circle"></i> IP 不可用</span> ' +
+        '<small class="text-danger">' + data.detail + '</small>';
     } else if (data.status === 'free') {
       box.innerHTML =
         '<span class="badge bg-success"><i class="mdi mdi-check-circle"></i> IP 可用</span> ' +
-        '<small class="text-muted">' + methodLabel + ' 無回應</small>';
+        '<small class="text-muted">' + data.detail + '</small>';
     } else {
       box.innerHTML =
         '<span class="badge bg-secondary"><i class="mdi mdi-help-circle"></i> 無法確認</span> ' +
