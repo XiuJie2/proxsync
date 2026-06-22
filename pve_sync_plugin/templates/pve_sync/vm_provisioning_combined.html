@@ -1,20 +1,20 @@
 {% extends 'base/layout.html' %}
 {% load helpers %}
 {% load pve_sync_tags %}
+{% load render_table from django_tables2 %}
 
-{% block title %}VM Provisioning Planner{% endblock %}
+{% block title %}VM 佈建{% endblock %}
 
 {% block content %}
-<div class="row mb-3 align-items-center">
-  <div class="col">
-    <h1 class="mb-0"><i class="mdi mdi-server-plus text-primary"></i> VM Provisioning Planner</h1>
-    <div class="text-muted small">Step 1 — 規劃新虛擬機規格與 IP，儲存後前往部署清單追蹤進度</div>
-  </div>
-  <div class="col-auto">
-    <a href="{% url 'plugins:pve_sync_plugin:vmprovisioninglog_list' %}" class="btn btn-outline-secondary btn-sm">
-      <i class="mdi mdi-format-list-bulleted"></i> 查看所有規劃記錄
-    </a>
-  </div>
+
+{# ── 頁首 ── #}
+<div class="d-flex align-items-center mb-4">
+  <h1 class="mb-0"><i class="mdi mdi-server-plus text-primary"></i> VM 佈建</h1>
+  <button class="btn btn-primary ms-auto" type="button"
+          data-bs-toggle="collapse" data-bs-target="#new-vm-panel"
+          aria-expanded="{{ expand_form|yesno:'true,false' }}">
+    <i class="mdi mdi-plus"></i> 新增 VM
+  </button>
 </div>
 
 {% if messages %}
@@ -25,6 +25,8 @@
   {% endfor %}
 {% endif %}
 
+{# ── 可收合的新增表單 ── #}
+<div class="collapse {% if expand_form %}show{% endif %} mb-4" id="new-vm-panel">
 <form method="post" id="vm-planner-form">
 {% csrf_token %}
 
@@ -32,7 +34,7 @@
 
   {# ── 左欄：VM 基本資訊 ── #}
   <div class="col-lg-6">
-    <div class="card h-100">
+    <div class="card">
       <h5 class="card-header"><i class="mdi mdi-server"></i> VM 基本資訊</h5>
       <div class="card-body">
 
@@ -107,7 +109,7 @@
 
         <div class="mb-0">
           <label class="form-label fw-semibold">備註</label>
-          <textarea name="notes" class="form-control" rows="3" placeholder="部署說明、特殊需求…"></textarea>
+          <textarea name="notes" class="form-control" rows="2" placeholder="部署說明、特殊需求…"></textarea>
         </div>
 
       </div>
@@ -116,7 +118,7 @@
 
   {# ── 右欄：IP 分配 ── #}
   <div class="col-lg-6">
-    <div class="card h-100">
+    <div class="card">
       <h5 class="card-header"><i class="mdi mdi-ip-network"></i> IP 分配</h5>
       <div class="card-body">
 
@@ -127,7 +129,6 @@
             <span class="fw-semibold">Management</span>
             <span class="text-muted small">內部管理網路</span>
           </div>
-
           <div class="mb-2">
             <label class="form-label small fw-semibold">IP Range</label>
             <select name="management_ip_range" id="mgmt_range" class="form-select form-select-sm"
@@ -138,7 +139,6 @@
               {% endfor %}
             </select>
           </div>
-
           <div class="mb-2">
             <label class="form-label small fw-semibold">IP 位址</label>
             <div class="input-group input-group-sm">
@@ -150,7 +150,6 @@
             </div>
             <div id="mgmt_probe_result" class="mt-1"></div>
           </div>
-
           <div>
             <label class="form-label small fw-semibold">閘道</label>
             <input type="text" name="management_gateway" id="mgmt_gateway"
@@ -167,7 +166,6 @@
             <span class="fw-semibold">Internet</span>
             <span class="text-muted small">外部網路</span>
           </div>
-
           <div class="mb-2">
             <label class="form-label small fw-semibold">IP Range</label>
             <select name="internet_ip_range" id="inet_range" class="form-select form-select-sm"
@@ -178,7 +176,6 @@
               {% endfor %}
             </select>
           </div>
-
           <div class="mb-2">
             <label class="form-label small fw-semibold">IP 位址</label>
             <div class="input-group input-group-sm">
@@ -190,7 +187,6 @@
             </div>
             <div id="inet_probe_result" class="mt-1"></div>
           </div>
-
           <div>
             <label class="form-label small fw-semibold">閘道</label>
             <input type="text" name="internet_gateway" id="inet_gateway"
@@ -222,57 +218,48 @@
   </div>
 </div>
 
-{# ── 提示與提交 ── #}
-<div class="d-flex align-items-center gap-3 mt-4">
+{# ── 提交 ── #}
+<div class="d-flex align-items-center gap-3 mt-3 mb-2">
   <button type="submit" class="btn btn-primary px-4">
     <i class="mdi mdi-content-save"></i> 建立規劃記錄
   </button>
-  <span class="text-muted small">
-    <i class="mdi mdi-information-outline"></i>
-    IP 將於 PVE 同步後自動寫入 IPAM。
-  </span>
+  <button type="button" class="btn btn-outline-secondary"
+          data-bs-toggle="collapse" data-bs-target="#new-vm-panel">
+    取消
+  </button>
 </div>
 
 </form>
+</div>{# /collapse #}
+
+{# ── 規劃記錄列表 ── #}
+<div class="card">
+  <div class="card-body p-0">
+    {% render_table table %}
+  </div>
+</div>
 
 <script>
-const FREE_IPS_URL  = "{% url 'plugins:pve_sync_plugin:vm-planner-free-ips' 0 %}".replace('/0/', '/');
-const CHECK_IP_URL  = "{% url 'plugins:pve_sync_plugin:vm-planner-check-ip' %}";
-const NODES_URL     = "{% url 'plugins:pve_sync_plugin:vm-planner-nodes' %}";
+const FREE_IPS_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-free-ips' 0 %}".replace('/0/', '/');
+const CHECK_IP_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-check-ip' %}";
+const NODES_URL    = "{% url 'plugins:pve_sync_plugin:vm-planner-nodes' %}";
 
 function loadNodes(clusterName) {
   const sel    = document.getElementById('node');
   const status = document.getElementById('node_status');
-
   sel.disabled = true;
   sel.innerHTML = '<option value="">— 載入中… —</option>';
   status.textContent = '';
-
-  if (!clusterName) {
-    sel.innerHTML = '<option value="">— 先選擇叢集 —</option>';
-    return;
-  }
-
+  if (!clusterName) { sel.innerHTML = '<option value="">— 先選擇叢集 —</option>'; return; }
   fetch(NODES_URL + '?cluster=' + encodeURIComponent(clusterName), {
     credentials: 'same-origin',
     headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}
   })
-  .then(function(r) {
-    const ct = r.headers.get('content-type') || '';
-    if (!ct.includes('application/json')) {
-      throw new Error('HTTP ' + r.status);
-    }
-    return r.json();
-  })
-  .then(function(data) {
+  .then(r => r.json())
+  .then(data => {
     sel.innerHTML = '<option value="">— 選擇節點 —</option>';
     if (data.nodes && data.nodes.length > 0) {
-      data.nodes.forEach(function(name) {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        sel.appendChild(opt);
-      });
+      data.nodes.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
       sel.disabled = false;
       if (data.nodes.length === 1) sel.value = data.nodes[0];
       status.innerHTML = '<span class="text-muted">共 ' + data.nodes.length + ' 個節點</span>';
@@ -281,72 +268,37 @@ function loadNodes(clusterName) {
       status.innerHTML = '<span class="text-warning">NetBox 無此叢集的節點記錄</span>';
     }
   })
-  .catch(function(e) {
-    sel.innerHTML = '<option value="">— 載入失敗 —</option>';
-    status.innerHTML = '<span class="text-danger">載入失敗：' + e.message + '</span>';
-    console.error('loadNodes:', e);
-  });
+  .catch(e => { sel.innerHTML = '<option value="">— 載入失敗 —</option>'; status.innerHTML = '<span class="text-danger">載入失敗：' + e.message + '</span>'; });
 }
 
-function getLastOctet(ip) {
-  const m = (ip || '').match(/\.(\d+)$/);
-  return m ? m[1] : null;
-}
+function getLastOctet(ip) { const m = (ip || '').match(/\.(\d+)$/); return m ? m[1] : null; }
 
 function loadFreeIps(nic, rangeId) {
-  const prefix  = nic === 'mgmt' ? 'mgmt' : 'inet';
-  const select  = document.getElementById(prefix + '_ip_select');
-  const input   = document.getElementById(prefix + '_ip_input');
-  const probe   = document.getElementById(prefix + '_probe_result');
-
-  if (!rangeId) {
-    select.disabled = true;
-    select.innerHTML = '<option value="">— 先選擇 IP Range —</option>';
-    input.value = '';
-    probe.innerHTML = '';
-    return;
-  }
-
+  const prefix = nic === 'mgmt' ? 'mgmt' : 'inet';
+  const select = document.getElementById(prefix + '_ip_select');
+  const input  = document.getElementById(prefix + '_ip_input');
+  const probe  = document.getElementById(prefix + '_probe_result');
+  if (!rangeId) { select.disabled = true; select.innerHTML = '<option value="">— 先選擇 IP Range —</option>'; input.value = ''; probe.innerHTML = ''; return; }
   probe.innerHTML = '<span class="text-muted small">載入空閒 IP 中…</span>';
   select.disabled = true;
-
   let url = FREE_IPS_URL + rangeId + '/';
-  if (nic === 'inet') {
-    const octet = getLastOctet(document.getElementById('mgmt_ip_input').value);
-    if (octet) url += '?prefer_last_octet=' + octet;
-  }
-
+  if (nic === 'inet') { const octet = getLastOctet(document.getElementById('mgmt_ip_input').value); if (octet) url += '?prefer_last_octet=' + octet; }
   fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
     .then(r => r.json())
     .then(data => {
       if (data.error) { probe.innerHTML = '<span class="text-danger small">' + data.error + '</span>'; return; }
-
       select.innerHTML = '<option value="">— 選擇空閒 IP —</option>';
-      data.free_ips.forEach(function(item) {
-        const opt = document.createElement('option');
-        opt.value = item.ip;
-        opt.textContent = item.ip;
-        select.appendChild(opt);
-      });
+      data.free_ips.forEach(item => { const o = document.createElement('option'); o.value = item.ip; o.textContent = item.ip; select.appendChild(o); });
       select.disabled = false;
-
-      if (data.free_ips.length === 0) {
-        probe.innerHTML = '<span class="text-danger small">此 Range 無空閒 IP</span>';
-        return;
-      }
-
+      if (data.free_ips.length === 0) { probe.innerHTML = '<span class="text-danger small">此 Range 無空閒 IP</span>'; return; }
       const chosen = data.preferred || data.free_ips[0];
-      select.value = chosen.ip;
-      input.value  = chosen.ip;
-      probeIp(nic);
-
+      select.value = chosen.ip; input.value = chosen.ip; probeIp(nic);
       if (data.preferred) {
         const octet = getLastOctet(document.getElementById('mgmt_ip_input').value);
         probe.innerHTML = '<span class="text-success small"><i class="mdi mdi-link"></i> 依 Management 末位 <strong>.' + octet + '</strong> 自動對齊 ' + chosen.ip + '</span>';
       } else if (nic === 'inet') {
         const octet = getLastOctet(document.getElementById('mgmt_ip_input').value);
-        const note  = octet ? '（末位 .' + octet + ' 已佔用，改用第一個空閒）' : '';
-        probe.innerHTML = '<span class="text-warning small">自動選擇第一個空閒 IP ' + note + '</span>';
+        probe.innerHTML = '<span class="text-warning small">自動選擇第一個空閒 IP' + (octet ? '（末位 .' + octet + ' 已佔用）' : '') + '</span>';
       } else {
         probe.innerHTML = '<span class="text-success small">找到 ' + data.free_ips.length + ' 個空閒 IP</span>';
       }
@@ -354,11 +306,7 @@ function loadFreeIps(nic, rangeId) {
     .catch(e => { probe.innerHTML = '<span class="text-danger small">請求失敗：' + e + '</span>'; });
 }
 
-function syncIpInput(nic) {
-  const sel = document.getElementById(nic + '_ip_select');
-  const inp = document.getElementById(nic + '_ip_input');
-  if (sel.value) inp.value = sel.value;
-}
+function syncIpInput(nic) { const sel = document.getElementById(nic + '_ip_select'); const inp = document.getElementById(nic + '_ip_input'); if (sel.value) inp.value = sel.value; }
 
 document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('mgmt_ip_input').addEventListener('change', function() {
@@ -367,10 +315,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// ── IP probe (IPAM → ARP → ping) ──
-const _probeTimers = {};
-const _probeGen    = {};
-
+const _probeTimers = {}, _probeGen = {};
 function probeIp(nic) {
   const ip  = document.getElementById(nic + '_ip_input').value.trim();
   const box = document.getElementById(nic + '_probe_result');
@@ -381,28 +326,22 @@ function probeIp(nic) {
   const gen = _probeGen[nic];
   _probeTimers[nic] = setTimeout(function() { _doProbe(nic, ip, box, gen); }, 800);
 }
-
 function _doProbe(nic, ip, box, gen) {
   if (gen !== _probeGen[nic]) return;
   box.innerHTML = '<span class="badge bg-secondary"><span class="spinner-border spinner-border-sm" style="width:.65rem;height:.65rem"></span> 探測 ' + ip + '…</span>';
-
   fetch(CHECK_IP_URL + '?ip=' + encodeURIComponent(ip), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
   .then(r => r.json())
   .then(data => {
     if (gen !== _probeGen[nic]) return;
     if (data.error) { box.innerHTML = '<span class="badge bg-warning text-dark">' + data.error + '</span>'; return; }
-    if (data.status === 'in_use') {
+    if (data.status === 'in_use')
       box.innerHTML = '<span class="badge bg-danger"><i class="mdi mdi-alert-circle"></i> IP 不可用</span> <small class="text-danger">' + data.detail + '</small>';
-    } else if (data.status === 'free') {
+    else if (data.status === 'free')
       box.innerHTML = '<span class="badge bg-success"><i class="mdi mdi-check-circle"></i> IP 可用</span> <small class="text-muted">' + data.detail + '</small>';
-    } else {
+    else
       box.innerHTML = '<span class="badge bg-secondary"><i class="mdi mdi-help-circle"></i> 無法確認</span> <small class="text-muted">' + data.detail + '</small>';
-    }
   })
-  .catch(function(e) {
-    if (gen !== _probeGen[nic]) return;
-    box.innerHTML = '<span class="badge bg-warning text-dark">探測失敗：' + e + '</span>';
-  });
+  .catch(e => { if (gen !== _probeGen[nic]) return; box.innerHTML = '<span class="badge bg-warning text-dark">探測失敗：' + e + '</span>'; });
 }
 </script>
 {% endblock %}

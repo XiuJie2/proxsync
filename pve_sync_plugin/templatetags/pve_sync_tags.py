@@ -13,6 +13,14 @@ register = template.Library()
 
 
 @register.filter
+def get_item(dictionary, key):
+    """Dynamic dict lookup: {{ mydict|get_item:variable_key }}"""
+    if isinstance(dictionary, dict):
+        return dictionary.get(key)
+    return None
+
+
+@register.filter
 def split(value, sep=","):
     """Split a string by separator — used in templates: "a|b|c"|split:"|" """
     return value.split(sep)

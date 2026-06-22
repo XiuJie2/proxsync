@@ -465,6 +465,7 @@ class PbsServerConfig(NetBoxModel):
         return host
 
 
+
 class VmProvisioningLog(NetBoxModel):
     """Planning record created in the VM Provisioning Planner before PVE sync."""
 
@@ -508,11 +509,15 @@ class VmProvisioningLog(NetBoxModel):
             self.status, "secondary"
         )
 
+    QEMU_GA_ITEMS = [
+        ("chk_qemu_options", "在 VM Options 啟用 QEMU Guest Agent"),
+        ("chk_qemu_install", "安裝 qemu-guest-agent 套件"),
+        ("chk_qemu_enable",  "啟用並啟動 qemu-guest-agent 服務"),
+    ]
+
     @property
     def checklist_progress(self):
-        """Return (checked_count, total_count)."""
-        if not self.checklist:
-            return 0, 0
-        total   = len(self.checklist)
-        checked = sum(1 for v in self.checklist.values() if v)
+        """Return (checked_count, total_count) for QEMU GA items."""
+        total   = len(self.QEMU_GA_ITEMS)
+        checked = sum(1 for key, _ in self.QEMU_GA_ITEMS if self.checklist.get(key))
         return checked, total

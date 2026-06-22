@@ -70,14 +70,9 @@ pbs_item = PluginMenuItem(
 )
 
 
-vm_planner_item = PluginMenuItem(
-    link="plugins:pve_sync_plugin:vm-planner",
-    link_text="VM Planner",
-)
-
-provisioning_logs_item = PluginMenuItem(
+vm_provisioning_item = PluginMenuItem(
     link="plugins:pve_sync_plugin:vmprovisioninglog_list",
-    link_text="Provisioning Logs",
+    link_text="VM 佈建",
 )
 
 menu = PluginMenu(
@@ -97,7 +92,7 @@ menu = PluginMenu(
         ),
         (
             "VM Operations",
-            (vm_planner_item, provisioning_logs_item),
+            (vm_provisioning_item,),
         ),
         (
             "Configuration",

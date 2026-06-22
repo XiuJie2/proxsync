@@ -291,29 +291,11 @@ class VmProvisioningLogTable(NetBoxTable):
     status        = columns.ChoiceFieldColumn(verbose_name="狀態")
     management_ip = tables.Column(verbose_name="Management IP")
     internet_ip   = tables.Column(verbose_name="Internet IP")
-    progress      = tables.Column(empty_values=(), verbose_name="清單進度", orderable=False)
     actions       = columns.ActionsColumn(actions=("delete",))
-
-    def render_progress(self, record):
-        from django.utils.html import format_html
-        checked, total = record.checklist_progress
-        if total == 0:
-            return "—"
-        pct = int(checked / total * 100)
-        color = "success" if pct == 100 else "primary" if pct > 0 else "secondary"
-        return format_html(
-            '<div style="min-width:90px">'
-            '<div class="progress mb-1" style="height:6px">'
-            '<div class="progress-bar bg-{}" style="width:{}%"></div>'
-            '</div>'
-            '<small class="text-muted">{}/{}</small>'
-            '</div>',
-            color, pct, checked, total
-        )
 
     class Meta(NetBoxTable.Meta):
         model = VmProvisioningLog
         fields = ("pk", "vm_name", "vmid", "cluster_name", "node", "status",
-                  "management_ip", "internet_ip", "progress", "created")
+                  "management_ip", "internet_ip", "created")
         default_columns = ("vm_name", "vmid", "cluster_name", "node", "status",
-                           "management_ip", "internet_ip", "progress")
+                           "management_ip", "internet_ip")

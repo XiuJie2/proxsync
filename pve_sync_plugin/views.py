@@ -466,21 +466,37 @@ class TriggerVmSyncView(PermissionRequiredMixin, View):
 # VM Provisioning Planner
 # ============================================================================
 
-class VmPlannerView(PermissionRequiredMixin, View):
-    """Interactive VM provisioning planner: pick cluster/node/vmid, assign IPs, review checklist."""
+class VmPlannerView(View):
+    """Redirect old vm-planner/ URL to the combined provisioning page."""
+    def get(self, request):
+        return redirect(reverse("plugins:pve_sync_plugin:vmprovisioninglog_list"))
+
+
+class VmProvisioningCombinedView(PermissionRequiredMixin, View):
+    """Combined VM provisioning planner + logs list on one page."""
 
     permission_required = "pve_sync_plugin.view_pveclusterconfig"
 
-    def _context(self, request):
+    def _form_ctx(self):
         from ipam.models import IPRange
-        from .models import PveClusterConfig
         return {
-            "clusters": PveClusterConfig.objects.order_by("name"),
-            "ip_ranges": IPRange.objects.order_by("start_address"),
+            "clusters":      PveClusterConfig.objects.order_by("name"),
+            "ip_ranges":     IPRange.objects.order_by("start_address"),
+            "qemu_ga_items": VmProvisioningLog.QEMU_GA_ITEMS,
         }
 
-    def get(self, request):
-        return render(request, "pve_sync/vm_planner.html", self._context(request))
+    def _table_ctx(self, request):
+        import django_tables2
+        qs    = VmProvisioningLog.objects.order_by("-created")
+        table = VmProvisioningLogTable(qs)
+        django_tables2.RequestConfig(request, paginate={"per_page": 25}).configure(table)
+        return {"table": table}
+
+    def get(self, request, expand_form=False):
+        ctx = {"expand_form": expand_form}
+        ctx.update(self._form_ctx())
+        ctx.update(self._table_ctx(request))
+        return render(request, "pve_sync/vm_provisioning_combined.html", ctx)
 
     def post(self, request):
         def _int(key):
@@ -489,18 +505,21 @@ class VmPlannerView(PermissionRequiredMixin, View):
             except (ValueError, TypeError):
                 return None
 
-        # Collect checklist state from form (checkboxes send value only when checked)
         checklist = {}
         for key, val in request.POST.items():
             if key.startswith("chk_"):
                 checklist[key] = (val == "on")
-        # Also capture unchecked boxes submitted as hidden companion fields
         for key, val in request.POST.items():
             if key.startswith("chk_exists_") and key.replace("chk_exists_", "chk_") not in checklist:
                 checklist[key.replace("chk_exists_", "chk_")] = False
 
+        vm_name = request.POST.get("vm_name", "").strip()
+        if not vm_name:
+            messages.error(request, "VM 名稱不能為空。")
+            return self.get(request, expand_form=True)
+
         log = VmProvisioningLog.objects.create(
-            vm_name       = request.POST.get("vm_name", "").strip(),
+            vm_name       = vm_name,
             vmid          = _int("vmid"),
             cluster_name  = request.POST.get("cluster", "").strip(),
             node          = request.POST.get("node", "").strip(),
@@ -519,19 +538,14 @@ class VmPlannerView(PermissionRequiredMixin, View):
         return redirect(log.get_absolute_url())
 
 
-class VmProvisioningLogListView(generic.ObjectListView):
-    queryset = VmProvisioningLog.objects.all()
-    table    = VmProvisioningLogTable
-    # No "Add" button — use VM Planner (sidebar "New VM") to create logs
-    actions  = (BulkDelete,)
-
-
 class VmProvisioningLogView(PermissionRequiredMixin, View):
     permission_required = "pve_sync_plugin.view_pveclusterconfig"
 
     def get(self, request, pk):
         log = get_object_or_404(VmProvisioningLog, pk=pk)
-        return render(request, "pve_sync/vm_provisioning_log.html", {"object": log})
+        return render(request, "pve_sync/vm_provisioning_log.html", {
+            "object": log,
+        })
 
     def post(self, request, pk):
         """Update status and notes (checklist is updated via separate AJAX endpoint)."""
@@ -721,14 +735,12 @@ class VmPlannerCheckIpApi(PermissionRequiredMixin, View):
                     mac_match = re.search(r"from\s+([\da-fA-F:]{17})", result.stdout)
                     mac = mac_match.group(1) if mac_match else "unknown MAC"
                     detail = f"ARP 有回應，MAC: {mac}（未記錄於 IPAM）"
-                else:
-                    status = "free"
-                    detail = "IPAM 未分配，ARP 無回應"
+                # else: status stays "unknown", let ping decide
             except Exception as exc:
                 logger.debug("arping probe failed for %s: %s", ip_str, exc)
 
-        # ── 3. Ping fallback ──
-        if source == "none":
+        # ── 3. Ping — runs whenever ARP didn't confirm in_use ──
+        if status != "in_use":
             try:
                 result = subprocess.run(
                     ["ping", "-c", "1", "-W", "1", "-q", ip_str],

@@ -187,8 +187,8 @@ urlpatterns = [
     path("vm-planner/free-ips/<int:range_id>/", views.VmPlannerFreeIpsApi.as_view(), name="vm-planner-free-ips"),
     path("vm-planner/check-ip/", views.VmPlannerCheckIpApi.as_view(), name="vm-planner-check-ip"),
 
-    # VM Provisioning Logs
-    path("provisioning/", views.VmProvisioningLogListView.as_view(), name="vmprovisioninglog_list"),
+    # VM Provisioning — combined planner + list
+    path("provisioning/", views.VmProvisioningCombinedView.as_view(), name="vmprovisioninglog_list"),
     path("provisioning/<int:pk>/", views.VmProvisioningLogView.as_view(), name="vmprovisioninglog"),
     path("provisioning/<int:pk>/checklist/", views.VmProvisioningLogChecklistApi.as_view(), name="vmprovisioninglog_checklist"),
     path("provisioning/<int:pk>/delete/", views.VmProvisioningLogDeleteView.as_view(), name="vmprovisioninglog_delete"),
