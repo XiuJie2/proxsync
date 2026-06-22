@@ -389,31 +389,44 @@ document.addEventListener('DOMContentLoaded', function() {
 // ── Network probe (ARP → ping) ──
 const CHECK_IP_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-check-ip' %}";
 const _probeTimers = {};
+const _probeGen    = {};   // generation counter — discard results from stale probes
 
 function probeIp(nic) {
   const ip  = document.getElementById(nic + '_ip_input').value.trim();
   const box = document.getElementById(nic + '_probe_result');
 
-  if (!ip) { box.innerHTML = ''; return; }
-
-  // Debounce: wait until user stops typing (800ms), then probe
-  // Keeps probe result cleared while typing so stale result isn't shown
+  // Always clear old result and bump generation so any in-flight probe is ignored
   box.innerHTML = '';
+  _probeGen[nic] = (_probeGen[nic] || 0) + 1;
   clearTimeout(_probeTimers[nic]);
-  // Only fire if IP looks complete (at least 7 chars: 1.1.1.1)
-  if (ip.length < 7) return;
-  _probeTimers[nic] = setTimeout(function() { _doProbe(nic, ip, box); }, 800);
+
+  if (!ip || ip.length < 7) return;   // not a complete IPv4 yet
+
+  const gen = _probeGen[nic];
+  _probeTimers[nic] = setTimeout(function() { _doProbe(nic, ip, box, gen); }, 800);
 }
 
-function _doProbe(nic, ip, box) {
-  box.innerHTML = '<span class="badge bg-secondary"><span class="spinner-border spinner-border-sm" style="width:.65rem;height:.65rem"></span> 探測中 ' + ip + '...</span>';
+function _doProbe(nic, ip, box, gen) {
+  // Abort if the user has already changed the IP
+  if (gen !== _probeGen[nic]) return;
+
+  box.innerHTML =
+    '<span class="badge bg-secondary">' +
+    '<span class="spinner-border spinner-border-sm" style="width:.65rem;height:.65rem"></span>' +
+    ' 探測中 ' + ip + '...</span>';
 
   fetch(CHECK_IP_URL + '?ip=' + encodeURIComponent(ip), {
     headers: {'X-Requested-With': 'XMLHttpRequest'}
   })
   .then(r => r.json())
   .then(data => {
-    if (data.error) { box.innerHTML = '<span class="badge bg-warning text-dark">' + data.error + '</span>'; return; }
+    // Drop result if user already moved on to a different IP
+    if (gen !== _probeGen[nic]) return;
+
+    if (data.error) {
+      box.innerHTML = '<span class="badge bg-warning text-dark">' + data.error + '</span>';
+      return;
+    }
 
     const methodLabel = data.method === 'arp' ? 'ARP' : data.method === 'ping' ? 'Ping' : '?';
 
@@ -431,7 +444,10 @@ function _doProbe(nic, ip, box) {
         '<small class="text-muted">' + data.detail + '</small>';
     }
   })
-  .catch(e => { box.innerHTML = '<span class="badge bg-warning text-dark">探測失敗：' + e + '</span>'; });
+  .catch(function(e) {
+    if (gen !== _probeGen[nic]) return;
+    box.innerHTML = '<span class="badge bg-warning text-dark">探測失敗：' + e + '</span>';
+  });
 }
 
 // ── Checklist persistence ──
