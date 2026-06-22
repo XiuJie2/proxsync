@@ -71,16 +71,13 @@ pbs_item = PluginMenuItem(
 
 
 vm_planner_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:vm-planner",
+    link_text="VM Planner",
+)
+
+provisioning_logs_item = PluginMenuItem(
     link="plugins:pve_sync_plugin:vmprovisioninglog_list",
     link_text="Provisioning Logs",
-    buttons=(
-        PluginMenuButton(
-            "plugins:pve_sync_plugin:vm-planner",
-            "New VM",
-            "mdi mdi-plus-thick",
-            ButtonColorChoices.GREEN,
-        ),
-    ),
 )
 
 menu = PluginMenu(
@@ -100,7 +97,7 @@ menu = PluginMenu(
         ),
         (
             "VM Operations",
-            (vm_planner_item,),
+            (vm_planner_item, provisioning_logs_item),
         ),
         (
             "Configuration",
