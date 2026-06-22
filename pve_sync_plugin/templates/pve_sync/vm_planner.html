@@ -121,13 +121,15 @@
           <div class="mb-2">
             <label class="form-label small fw-semibold">IP 位址</label>
             <div class="input-group input-group-sm">
-              <select id="mgmt_ip_select" class="form-select" onchange="syncIpInput('mgmt')" disabled>
+              <select id="mgmt_ip_select" class="form-select" onchange="syncIpInput('mgmt'); probeIp('mgmt')" disabled>
                 <option value="">— 先選擇 IP Range —</option>
               </select>
               <input type="text" name="management_ip" id="mgmt_ip_input" class="form-control"
-                     placeholder="或手動輸入 IP">
+                     placeholder="或手動輸入 IP"
+                     onblur="probeIp('mgmt')">
             </div>
             <div class="form-text" id="mgmt_ip_status"></div>
+            <div id="mgmt_probe_result" class="mt-1"></div>
           </div>
 
           <div class="mb-1">
@@ -161,13 +163,15 @@
           <div class="mb-2">
             <label class="form-label small fw-semibold">IP 位址</label>
             <div class="input-group input-group-sm">
-              <select id="inet_ip_select" class="form-select" onchange="syncIpInput('inet')" disabled>
+              <select id="inet_ip_select" class="form-select" onchange="syncIpInput('inet'); probeIp('inet')" disabled>
                 <option value="">— 先選擇 IP Range —</option>
               </select>
               <input type="text" name="internet_ip" id="inet_ip_input" class="form-control"
-                     placeholder="或手動輸入 IP">
+                     placeholder="或手動輸入 IP"
+                     onblur="probeIp('inet')">
             </div>
             <div class="form-text" id="inet_ip_status"></div>
+            <div id="inet_probe_result" class="mt-1"></div>
           </div>
 
           <div class="mb-1">
@@ -350,6 +354,7 @@ function loadFreeIps(nic, rangeId) {
       const chosen = data.preferred || data.free_ips[0];
       select.value = chosen.ip;
       input.value  = chosen.ip;
+      probeIp(nic);
 
       if (data.preferred) {
         const mgmtIp = document.getElementById('mgmt_ip_input').value;
@@ -380,6 +385,50 @@ document.addEventListener('DOMContentLoaded', function() {
     if (inetRangeId) loadFreeIps('inet', inetRangeId);
   });
 });
+
+// ── Network probe (ARP → ping) ──
+const CHECK_IP_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-check-ip' %}";
+const _probeTimers = {};
+
+function probeIp(nic) {
+  const ip  = document.getElementById(nic + '_ip_input').value.trim();
+  const box = document.getElementById(nic + '_probe_result');
+
+  if (!ip) { box.innerHTML = ''; return; }
+
+  // Debounce — avoid firing on every keystroke
+  clearTimeout(_probeTimers[nic]);
+  _probeTimers[nic] = setTimeout(function() { _doProbe(nic, ip, box); }, 300);
+}
+
+function _doProbe(nic, ip, box) {
+  box.innerHTML = '<span class="badge bg-secondary"><span class="spinner-border spinner-border-sm" style="width:.65rem;height:.65rem"></span> 探測中 ' + ip + '...</span>';
+
+  fetch(CHECK_IP_URL + '?ip=' + encodeURIComponent(ip), {
+    headers: {'X-Requested-With': 'XMLHttpRequest'}
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) { box.innerHTML = '<span class="badge bg-warning text-dark">' + data.error + '</span>'; return; }
+
+    const methodLabel = data.method === 'arp' ? 'ARP' : data.method === 'ping' ? 'Ping' : '?';
+
+    if (data.status === 'in_use') {
+      box.innerHTML =
+        '<span class="badge bg-danger"><i class="mdi mdi-alert-circle"></i> IP 正在使用中</span> ' +
+        '<small class="text-danger">' + methodLabel + ' 有回應 — ' + data.detail + '。請改選其他 IP。</small>';
+    } else if (data.status === 'free') {
+      box.innerHTML =
+        '<span class="badge bg-success"><i class="mdi mdi-check-circle"></i> IP 可用</span> ' +
+        '<small class="text-muted">' + methodLabel + ' 無回應</small>';
+    } else {
+      box.innerHTML =
+        '<span class="badge bg-secondary"><i class="mdi mdi-help-circle"></i> 無法確認</span> ' +
+        '<small class="text-muted">' + data.detail + '</small>';
+    }
+  })
+  .catch(e => { box.innerHTML = '<span class="badge bg-warning text-dark">探測失敗：' + e + '</span>'; });
+}
 
 // ── Checklist persistence ──
 const STORAGE_KEY = 'proxsync_vm_planner_checklist';

@@ -573,6 +573,88 @@ class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
         })
 
 
+class VmPlannerCheckIpApi(PermissionRequiredMixin, View):
+    """AJAX — probe whether an IP is actually free on the network (ARP → ping fallback)."""
+
+    permission_required = "pve_sync_plugin.view_pveclusterconfig"
+
+    def get(self, request):
+        import subprocess
+        import shutil
+        import netaddr
+
+        ip_str = request.GET.get("ip", "").strip()
+        try:
+            ip = netaddr.IPAddress(ip_str)
+            if ip.version != 4:
+                raise ValueError("IPv6 not supported")
+        except Exception:
+            return JsonResponse({"error": "Invalid IP address"}, status=400)
+
+        ip_str = str(ip)
+        status = "unknown"
+        method = "none"
+        detail = ""
+
+        # ── 1. ARP (Layer-2, more reliable on LAN) ──
+        if shutil.which("arping"):
+            try:
+                # Resolve the outbound interface for this destination
+                route = subprocess.run(
+                    ["ip", "route", "get", ip_str],
+                    capture_output=True, text=True, timeout=3,
+                )
+                iface = None
+                for part in route.stdout.split():
+                    if part == "dev":
+                        iface = route.stdout.split("dev")[1].split()[0]
+                        break
+
+                cmd = ["arping", "-c", "1", "-w", "2", ip_str]
+                if iface:
+                    cmd = ["arping", "-c", "1", "-w", "2", "-i", iface, ip_str]
+
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                method = "arp"
+                if result.returncode == 0 and "bytes from" in result.stdout:
+                    status = "in_use"
+                    # Extract MAC from arping output
+                    import re
+                    mac_match = re.search(r"from\s+([\da-fA-F:]{17})", result.stdout)
+                    mac = mac_match.group(1) if mac_match else "unknown MAC"
+                    detail = f"ARP 回應來自 {mac}"
+                else:
+                    status = "free"
+                    detail = "ARP 無回應"
+            except Exception as exc:
+                logger.debug("arping probe failed for %s: %s", ip_str, exc)
+
+        # ── 2. Ping fallback ──
+        if method == "none":
+            try:
+                result = subprocess.run(
+                    ["ping", "-c", "1", "-W", "1", "-q", ip_str],
+                    capture_output=True, text=True, timeout=4,
+                )
+                method = "ping"
+                if result.returncode == 0:
+                    status = "in_use"
+                    detail = "Ping 有回應"
+                else:
+                    status = "free"
+                    detail = "Ping 無回應"
+            except Exception as exc:
+                logger.debug("ping probe failed for %s: %s", ip_str, exc)
+                detail = "探測工具不可用"
+
+        return JsonResponse({
+            "ip": ip_str,
+            "status": status,   # "free" | "in_use" | "unknown"
+            "method": method,   # "arp" | "ping" | "none"
+            "detail": detail,
+        })
+
+
 # ============================================================================
 # Webhook Receiver (function-based 鈥?needs @csrf_exempt)
 # ============================================================================
