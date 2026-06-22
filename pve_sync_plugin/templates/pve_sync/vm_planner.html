@@ -1,0 +1,385 @@
+{% extends 'base/layout.html' %}
+{% load helpers %}
+{% load pve_sync_tags %}
+
+{% block title %}VM Provisioning Planner{% endblock %}
+
+{% block content %}
+<div class="row mb-3 align-items-center">
+  <div class="col">
+    <h1 class="mb-0"><i class="mdi mdi-server-plus text-primary"></i> VM Provisioning Planner</h1>
+    <div class="text-muted small">規劃新虛擬機 — 選定叢集/節點/VMID，分配 IP，確認部署清單</div>
+  </div>
+</div>
+
+{% if messages %}
+  {% for message in messages %}
+    <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endif %}
+
+<form method="post" id="vm-planner-form">
+{% csrf_token %}
+
+<div class="row g-4">
+
+  {# ── 左欄：VM 基本資訊 ── #}
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <h5 class="card-header"><i class="mdi mdi-server"></i> VM 基本資訊</h5>
+      <div class="card-body">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">VM 名稱</label>
+          <input type="text" name="vm_name" id="vm_name" class="form-control"
+                 placeholder="例如：web-prod-01" autocomplete="off">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">PVE 叢集</label>
+          <select name="cluster" id="cluster" class="form-select">
+            <option value="">— 選擇叢集 —</option>
+            {% for c in clusters %}
+              <option value="{{ c.name }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">節點 (Node)</label>
+          <input type="text" name="node" id="node" class="form-control"
+                 placeholder="例如：pve-node-01">
+          <div class="form-text">輸入 PVE 節點名稱</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">VMID</label>
+          <input type="number" name="vmid" id="vmid" class="form-control"
+                 placeholder="例如：200" min="100" max="999999999">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">作業系統</label>
+          <select name="os_type" class="form-select">
+            <option value="">— 選擇 OS —</option>
+            <option>Ubuntu 22.04 LTS</option>
+            <option>Ubuntu 24.04 LTS</option>
+            <option>Debian 12</option>
+            <option>Rocky Linux 9</option>
+            <option>AlmaLinux 9</option>
+            <option>Windows Server 2022</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <div class="col">
+            <label class="form-label fw-semibold">CPU (vCores)</label>
+            <input type="number" name="cpu" class="form-control" placeholder="4" min="1">
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold">記憶體 (GB)</label>
+            <input type="number" name="ram_gb" class="form-control" placeholder="8" min="1">
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold">磁碟 (GB)</label>
+            <input type="number" name="disk_gb" class="form-control" placeholder="50" min="1">
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  {# ── 右欄：IP 分配 ── #}
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <h5 class="card-header"><i class="mdi mdi-ip-network"></i> IP 分配</h5>
+      <div class="card-body">
+
+        {# Management NIC #}
+        <div class="mb-4">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="badge bg-primary">NIC 1</span>
+            <span class="fw-semibold">Management</span>
+            <span class="text-muted small">(內部管理網路)</span>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">IP Range</label>
+            <select name="management_ip_range" id="mgmt_range" class="form-select form-select-sm"
+                    onchange="loadFreeIps('mgmt', this.value)">
+              <option value="">— 選擇 IP Range —</option>
+              {% for r in ip_ranges %}
+                <option value="{{ r.pk }}">{{ r.start_address.ip }} – {{ r.end_address.ip }}{% if r.description %} ({{ r.description }}){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">IP 位址</label>
+            <div class="input-group input-group-sm">
+              <select id="mgmt_ip_select" class="form-select" onchange="syncIpInput('mgmt')" disabled>
+                <option value="">— 先選擇 IP Range —</option>
+              </select>
+              <input type="text" name="management_ip" id="mgmt_ip_input" class="form-control"
+                     placeholder="或手動輸入 IP">
+            </div>
+            <div class="form-text" id="mgmt_ip_status"></div>
+          </div>
+
+          <div class="mb-1">
+            <label class="form-label small fw-semibold">閘道</label>
+            <input type="text" name="management_gateway" id="mgmt_gateway" class="form-control form-control-sm"
+                   placeholder="例如：10.10.88.254">
+          </div>
+        </div>
+
+        <hr>
+
+        {# Internet NIC #}
+        <div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="badge bg-success">NIC 2</span>
+            <span class="fw-semibold">Internet</span>
+            <span class="text-muted small">(外部網路)</span>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">IP Range</label>
+            <select name="internet_ip_range" id="inet_range" class="form-select form-select-sm"
+                    onchange="loadFreeIps('inet', this.value)">
+              <option value="">— 選擇 IP Range —</option>
+              {% for r in ip_ranges %}
+                <option value="{{ r.pk }}">{{ r.start_address.ip }} – {{ r.end_address.ip }}{% if r.description %} ({{ r.description }}){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">IP 位址</label>
+            <div class="input-group input-group-sm">
+              <select id="inet_ip_select" class="form-select" onchange="syncIpInput('inet')" disabled>
+                <option value="">— 先選擇 IP Range —</option>
+              </select>
+              <input type="text" name="internet_ip" id="inet_ip_input" class="form-control"
+                     placeholder="或手動輸入 IP">
+            </div>
+            <div class="form-text" id="inet_ip_status"></div>
+          </div>
+
+          <div class="mb-1">
+            <label class="form-label small fw-semibold">閘道</label>
+            <input type="text" name="internet_gateway" id="inet_gateway" class="form-control form-control-sm"
+                   placeholder="例如：172.17.0.1">
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>{# /row #}
+
+{# ── 提交按鈕 ── #}
+<div class="d-flex gap-2 mt-4 mb-4">
+  <button type="submit" name="action" value="reserve" class="btn btn-primary">
+    <i class="mdi mdi-lock-check"></i> 保留 IP 至 NetBox IPAM
+  </button>
+  <button type="button" class="btn btn-outline-secondary" onclick="window.print()">
+    <i class="mdi mdi-printer"></i> 列印清單
+  </button>
+</div>
+
+</form>
+
+{# ── 部署清單 ── #}
+<div class="card mt-2" id="checklist-card">
+  <h5 class="card-header"><i class="mdi mdi-clipboard-check-outline"></i> 部署檢查清單</h5>
+  <div class="card-body">
+    <p class="text-muted small mb-3">勾選已完成的項目（狀態儲存於瀏覽器）</p>
+
+    <div class="row g-4">
+
+      {# Column 1 #}
+      <div class="col-md-6">
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-cog"></i> Proxmox VM 設定</h6>
+        <ul class="list-unstyled ms-2 mb-4">
+          {% for item in "建立 VM 並設定正確的 VMID|附加兩張網卡（Management + Internet）|設定 CPU / 記憶體 / 磁碟|在 VM Options 啟用 QEMU Guest Agent|設定開機順序（CD → 磁碟）|掛載 ISO 安裝媒體"|split:"|" %}
+            <li class="mb-1">
+              <div class="form-check">
+                <input class="form-check-input checklist-item" type="checkbox"
+                       id="chk_pve_{{ forloop.counter }}" data-key="pve_{{ forloop.counter }}">
+                <label class="form-check-label" for="chk_pve_{{ forloop.counter }}">{{ item }}</label>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-linux"></i> 作業系統安裝</h6>
+        <ul class="list-unstyled ms-2 mb-4">
+          {% for item in "安裝 OS|設定 hostname|建立管理員帳號|安裝 qemu-guest-agent|啟用 qemu-guest-agent 服務|設定 Management NIC 靜態 IP|設定 Internet NIC 靜態 IP"|split:"|" %}
+            <li class="mb-1">
+              <div class="form-check">
+                <input class="form-check-input checklist-item" type="checkbox"
+                       id="chk_os_{{ forloop.counter }}" data-key="os_{{ forloop.counter }}">
+                <label class="form-check-label" for="chk_os_{{ forloop.counter }}">{{ item }}</label>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+
+        <div class="alert alert-info py-2 px-3 small mb-0">
+          <strong>qemu-guest-agent 安裝指令：</strong><br>
+          <code>apt install -y qemu-guest-agent &amp;&amp; systemctl enable --now qemu-guest-agent</code><br>
+          <span class="text-muted">（Rocky/Alma：<code>dnf install -y qemu-guest-agent</code>）</span>
+        </div>
+
+      </div>
+
+      {# Column 2 #}
+      <div class="col-md-6">
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-network"></i> 網路驗證</h6>
+        <ul class="list-unstyled ms-2 mb-4">
+          {% for item in "ping 管理閘道|ping 外部閘道|ping 8.8.8.8（網際網路）|SSH 連線測試|DNS 解析測試（nslookup google.com）"|split:"|" %}
+            <li class="mb-1">
+              <div class="form-check">
+                <input class="form-check-input checklist-item" type="checkbox"
+                       id="chk_net_{{ forloop.counter }}" data-key="net_{{ forloop.counter }}">
+                <label class="form-check-label" for="chk_net_{{ forloop.counter }}">{{ item }}</label>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-shield-check"></i> 安全強化</h6>
+        <ul class="list-unstyled ms-2 mb-4">
+          {% for item in "更新所有套件（apt upgrade / dnf upgrade）|啟用防火牆（UFW / firewalld）|設定 SSH 金鑰驗證|停用 SSH 密碼登入（PasswordAuthentication no）|停用 root SSH 登入（PermitRootLogin no）|啟用自動安全更新（unattended-upgrades）"|split:"|" %}
+            <li class="mb-1">
+              <div class="form-check">
+                <input class="form-check-input checklist-item" type="checkbox"
+                       id="chk_sec_{{ forloop.counter }}" data-key="sec_{{ forloop.counter }}">
+                <label class="form-check-label" for="chk_sec_{{ forloop.counter }}">{{ item }}</label>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+
+        <h6 class="text-primary fw-bold mb-2"><i class="mdi mdi-backup-restore"></i> 備份</h6>
+        <ul class="list-unstyled ms-2">
+          {% for item in "將 VM 加入 PBS 備份排程|執行一次手動備份確認|驗證備份可還原|在 NetBox 記錄備份資訊"|split:"|" %}
+            <li class="mb-1">
+              <div class="form-check">
+                <input class="form-check-input checklist-item" type="checkbox"
+                       id="chk_bak_{{ forloop.counter }}" data-key="bak_{{ forloop.counter }}">
+                <label class="form-check-label" for="chk_bak_{{ forloop.counter }}">{{ item }}</label>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+
+      </div>
+    </div>{# /row #}
+
+    <div class="d-flex justify-content-end mt-3">
+      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="resetChecklist()">
+        <i class="mdi mdi-refresh"></i> 重置清單
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const FREE_IPS_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-free-ips' range_id=0 %}".replace('/0/', '/');
+
+function loadFreeIps(nic, rangeId) {
+  const select = document.getElementById(nic + '_ip_select');
+  const input  = document.getElementById(nic + '_ip_input');
+  const status = document.getElementById(nic + '_ip_status');
+
+  if (!rangeId) {
+    select.disabled = true;
+    select.innerHTML = '<option value="">— 先選擇 IP Range —</option>';
+    input.value = '';
+    status.textContent = '';
+    return;
+  }
+
+  status.innerHTML = '<span class="text-muted">載入空閒 IP 中...</span>';
+  select.disabled = true;
+
+  fetch(FREE_IPS_URL + rangeId + '/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { status.textContent = '錯誤：' + data.error; return; }
+      select.innerHTML = '<option value="">— 選擇空閒 IP —</option>';
+      data.free_ips.forEach(function(item) {
+        const opt = document.createElement('option');
+        opt.value = item.ip;
+        opt.textContent = item.ip;
+        select.appendChild(opt);
+      });
+      select.disabled = false;
+      if (data.free_ips.length > 0) {
+        select.value = data.free_ips[0].ip;
+        input.value  = data.free_ips[0].ip;
+        status.innerHTML = '<span class="text-success">找到 ' + data.free_ips.length + ' 個空閒 IP，已自動選擇第一個</span>';
+      } else {
+        status.innerHTML = '<span class="text-danger">此 Range 無空閒 IP</span>';
+      }
+    })
+    .catch(e => { status.textContent = '請求失敗：' + e; });
+}
+
+function syncIpInput(nic) {
+  const sel = document.getElementById(nic + '_ip_select');
+  const inp = document.getElementById(nic + '_ip_input');
+  if (sel.value) inp.value = sel.value;
+}
+
+// ── Checklist persistence ──
+const STORAGE_KEY = 'proxsync_vm_planner_checklist';
+
+function saveChecklist() {
+  const state = {};
+  document.querySelectorAll('.checklist-item').forEach(function(cb) {
+    state[cb.dataset.key] = cb.checked;
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function loadChecklist() {
+  try {
+    const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    document.querySelectorAll('.checklist-item').forEach(function(cb) {
+      if (state[cb.dataset.key]) cb.checked = true;
+    });
+  } catch(e) {}
+}
+
+function resetChecklist() {
+  if (!confirm('確定要重置所有勾選項目？')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  document.querySelectorAll('.checklist-item').forEach(function(cb) { cb.checked = false; });
+}
+
+document.querySelectorAll('.checklist-item').forEach(function(cb) {
+  cb.addEventListener('change', saveChecklist);
+});
+document.addEventListener('DOMContentLoaded', loadChecklist);
+</script>
+
+<style>
+@media print {
+  .btn, form, #vm-planner-form { display: none !important; }
+  #checklist-card { border: 1px solid #000 !important; }
+  .form-check-input { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+
+{% endblock %}

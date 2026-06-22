@@ -70,6 +70,19 @@ pbs_item = PluginMenuItem(
 )
 
 
+vm_planner_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:vm-planner",
+    link_text="VM Provisioning",
+    buttons=(
+        PluginMenuButton(
+            "plugins:pve_sync_plugin:vm-planner",
+            "New VM",
+            "mdi mdi-plus-thick",
+            ButtonColorChoices.GREEN,
+        ),
+    ),
+)
+
 menu = PluginMenu(
     label="Proxmox Sync",
     groups=(
@@ -84,6 +97,10 @@ menu = PluginMenu(
         (
             "Data Protection",
             (backup_status_item,),
+        ),
+        (
+            "VM Operations",
+            (vm_planner_item,),
         ),
         (
             "Configuration",

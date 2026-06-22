@@ -181,6 +181,10 @@ urlpatterns = [
         kwargs={"model": PveDriftEvent},
     ),
 
+    # VM Provisioning Planner
+    path("vm-planner/", views.VmPlannerView.as_view(), name="vm-planner"),
+    path("vm-planner/free-ips/<int:range_id>/", views.VmPlannerFreeIpsApi.as_view(), name="vm-planner-free-ips"),
+
     # Webhook receiver (external, no auth, HMAC-verified)
     path("webhook/", views.webhook_receiver, name="webhook"),
 ]

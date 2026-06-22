@@ -460,6 +460,111 @@ class TriggerVmSyncView(PermissionRequiredMixin, View):
 
 
 # ============================================================================
+# VM Provisioning Planner
+# ============================================================================
+
+class VmPlannerView(PermissionRequiredMixin, View):
+    """Interactive VM provisioning planner: pick cluster/node/vmid, assign IPs, review checklist."""
+
+    permission_required = "pve_sync_plugin.view_pveclusterconfig"
+
+    def _context(self, request):
+        from ipam.models import IPRange
+        from .models import PveClusterConfig
+        return {
+            "clusters": PveClusterConfig.objects.order_by("name"),
+            "ip_ranges": IPRange.objects.order_by("start_address"),
+        }
+
+    def get(self, request):
+        return render(request, "pve_sync/vm_planner.html", self._context(request))
+
+    def post(self, request):
+        from ipam.models import IPRange, IPAddress
+        import netaddr
+
+        vm_name = request.POST.get("vm_name", "").strip()
+        reserved = []
+        errors = []
+
+        for nic in ("management", "internet"):
+            ip_str = request.POST.get(f"{nic}_ip", "").strip()
+            range_id = request.POST.get(f"{nic}_ip_range", "").strip()
+            if not ip_str or not range_id:
+                continue
+            try:
+                ip_range = IPRange.objects.get(pk=range_id)
+                prefix_len = ip_range.start_address.prefixlen
+                cidr = f"{ip_str}/{prefix_len}"
+                _, created = IPAddress.objects.get_or_create(
+                    address=cidr,
+                    defaults={
+                        "status": "active",
+                        "description": f"{vm_name} - {nic.capitalize()}",
+                        "dns_name": vm_name.lower().replace(" ", "-") if vm_name else "",
+                    },
+                )
+                if created:
+                    reserved.append(f"{nic.capitalize()}: {cidr}")
+                else:
+                    errors.append(f"{nic.capitalize()} IP {ip_str} 已被使用")
+            except IPRange.DoesNotExist:
+                errors.append(f"找不到 IP Range (id={range_id})")
+            except Exception as exc:
+                errors.append(f"{nic.capitalize()}: {exc}")
+
+        for msg in errors:
+            messages.error(request, msg)
+        if reserved:
+            messages.success(request, "IP 已保留：" + "，".join(reserved))
+
+        return render(request, "pve_sync/vm_planner.html", self._context(request))
+
+
+class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
+    """AJAX — return the first N free IPs for an IP Range."""
+
+    permission_required = "pve_sync_plugin.view_pveclusterconfig"
+
+    def get(self, request, range_id):
+        from ipam.models import IPRange, IPAddress
+        import netaddr
+
+        try:
+            ip_range = IPRange.objects.get(pk=range_id)
+        except IPRange.DoesNotExist:
+            return JsonResponse({"error": "Range not found"}, status=404)
+
+        start_ip = ip_range.start_address.ip
+        end_ip = ip_range.end_address.ip
+        prefix_len = ip_range.start_address.prefixlen
+
+        used = set(
+            str(addr.ip)
+            for addr in (
+                obj.address
+                for obj in IPAddress.objects.filter(
+                    address__gte=str(start_ip),
+                    address__lte=str(end_ip),
+                )
+            )
+        )
+
+        free = []
+        for ip in netaddr.IPRange(str(start_ip), str(end_ip)):
+            if str(ip) not in used:
+                free.append({"ip": str(ip), "cidr": f"{ip}/{prefix_len}"})
+            if len(free) >= 50:
+                break
+
+        return JsonResponse({
+            "prefix_len": prefix_len,
+            "range_display": f"{start_ip} – {end_ip}",
+            "free_ips": free,
+        })
+
+
+# ============================================================================
 # Webhook Receiver (function-based 鈥?needs @csrf_exempt)
 # ============================================================================
 

@@ -12,6 +12,12 @@ from ..models import PveBackupStatus
 register = template.Library()
 
 
+@register.filter
+def split(value, sep=","):
+    """Split a string by separator — used in templates: "a|b|c"|split:"|" """
+    return value.split(sep)
+
+
 @register.simple_tag
 def pve_sync_button(vm_id=None, cluster='default'):
     """
