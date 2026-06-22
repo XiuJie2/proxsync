@@ -2,7 +2,7 @@
 
 from netbox.plugins import PluginTemplateExtension
 
-from .models import PveClusterConfig, PveSyncJob
+from .models import PveClusterConfig, PveSyncJob, PveVmTaskLog
 
 
 class VirtualMachineSyncButton(PluginTemplateExtension):
@@ -41,4 +41,37 @@ class VirtualMachineSyncButton(PluginTemplateExtension):
         )
 
 
-template_extensions = [VirtualMachineSyncButton]
+class VmTaskLogPanel(PluginTemplateExtension):
+    """Inject a VM operation history panel into NetBox VM detail pages."""
+
+    models = ["virtualization.virtualmachine"]
+
+    def full_width_page(self):
+        vm = self.context["object"]
+
+        if not vm.serial:
+            return ""
+
+        try:
+            vmid = int(vm.serial)
+        except (ValueError, TypeError):
+            return ""
+
+        qs = PveVmTaskLog.objects.filter(vmid=vmid)
+        cluster_config = None
+        if vm.cluster_id:
+            cluster_config = PveClusterConfig.objects.filter(
+                netbox_cluster_id=vm.cluster_id, enabled=True,
+            ).first()
+        if cluster_config:
+            qs = qs.filter(cluster_name=cluster_config.name)
+
+        task_logs = qs.order_by("-start_time")[:30]
+
+        return self.render(
+            "pve_sync/inc/vm_task_log_panel.html",
+            extra_context={"task_logs": task_logs, "vmid": vmid},
+        )
+
+
+template_extensions = [VirtualMachineSyncButton, VmTaskLogPanel]

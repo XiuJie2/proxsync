@@ -17,6 +17,7 @@ from pve_sync_plugin.models import (
     PveClusterConfig,
     PvePluginSettings,
     PveSyncJob,
+    PveVmTaskLog,
     PveWebhookEvent,
     VmProvisioningLog,
 )
@@ -26,6 +27,7 @@ from .serializers import (
     PveClusterConfigSerializer,
     PvePluginSettingsSerializer,
     PveSyncJobSerializer,
+    PveVmTaskLogSerializer,
     PveWebhookEventSerializer,
     VmProvisioningLogSerializer,
 )
@@ -99,3 +101,8 @@ class PvePluginSettingsViewSet(NetBoxModelViewSet):
 class VmProvisioningLogViewSet(NetBoxModelViewSet):
     queryset = VmProvisioningLog.objects.order_by("-created")
     serializer_class = VmProvisioningLogSerializer
+
+
+class PveVmTaskLogViewSet(NetBoxModelViewSet):
+    queryset = PveVmTaskLog.objects.order_by("-start_time")
+    serializer_class = PveVmTaskLogSerializer

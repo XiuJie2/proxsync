@@ -1235,6 +1235,111 @@ class OptimizedPVEToNetBoxSync:
             print(f"⚠️ 清理孤兒 VM 失敗: {exc}")
             traceback.print_exc()
 
+    def sync_vm_tasks(self):
+        """從 PVE 各節點抓取 VM 操作記錄（建立/刪除/Clone/遷移）並同步到 NetBox。"""
+        try:
+            from django.utils import timezone
+            from pve_sync_plugin.models import PveVmTaskLog
+        except ImportError:
+            return
+
+        VM_TASK_TYPES = {"qmcreate", "qmdestroy", "qmclone", "qmmigrate", "qmrestore"}
+        NOTIFY_TYPES  = {"qmdestroy", "qmclone", "qmrestore"}
+        TASK_LABELS   = {
+            "qmcreate":  "🆕 VM 建立",
+            "qmdestroy": "🗑️ VM 刪除",
+            "qmclone":   "📋 VM Clone",
+            "qmmigrate": "🔀 VM 遷移",
+            "qmrestore": "♻️ VM 還原",
+        }
+
+        # 從 NetBox cache 建立 vmid → vm_name 對照
+        vmid_to_name: dict = {}
+        for key, vm in self.nb_cache.get("virtual_machines_by_serial", {}).items():
+            try:
+                vmid_to_name[int(vm.serial)] = vm.name
+            except (ValueError, TypeError, AttributeError):
+                pass
+
+        # 只通知最近 2 小時內的操作（避免首次匯入時大量通知）
+        notify_cutoff = time.time() - 7200
+
+        since_ts = int(time.time()) - 30 * 86400  # 抓最近 30 天
+        new_count = 0
+
+        for node_name in self.pve_cache.get("vms_by_node", {}):
+            try:
+                tasks = self.pve_api.nodes(node_name).tasks.get(since=since_ts, limit=1000)
+            except Exception as exc:
+                print(f"  ⚠️ 無法取得節點 {node_name} 的操作記錄: {exc}")
+                continue
+
+            for task in tasks:
+                if task.get("type") not in VM_TASK_TYPES:
+                    continue
+
+                upid = task.get("upid", "")
+                if not upid:
+                    continue
+
+                vmid_str = task.get("id", "")
+                try:
+                    vmid = int(vmid_str)
+                except (ValueError, TypeError):
+                    continue
+
+                # UPID 去重
+                if PveVmTaskLog.objects.filter(upid=upid).exists():
+                    continue
+
+                task_type = task.get("type")
+                operator  = task.get("user", "unknown")
+                start_ts  = task.get("starttime")
+                end_ts    = task.get("endtime")
+                status    = task.get("status", "") or ""
+                vm_name   = vmid_to_name.get(vmid, f"VM-{vmid}")
+
+                start_dt = timezone.datetime.fromtimestamp(start_ts, tz=timezone.utc) if start_ts else timezone.now()
+                end_dt   = timezone.datetime.fromtimestamp(end_ts,   tz=timezone.utc) if end_ts   else None
+
+                log = PveVmTaskLog.objects.create(
+                    upid=upid,
+                    vmid=vmid,
+                    vm_name=vm_name,
+                    cluster_name=self.cluster_name,
+                    node=node_name,
+                    task_type=task_type,
+                    operator=operator,
+                    start_time=start_dt,
+                    end_time=end_dt,
+                    status=status,
+                    notified_telegram=False,
+                )
+                new_count += 1
+
+                # Telegram 通知（僅近期且已完成的操作）
+                should_notify = (
+                    task_type in NOTIFY_TYPES
+                    and status == "OK"
+                    and start_ts and start_ts >= notify_cutoff
+                )
+                if should_notify:
+                    label = TASK_LABELS.get(task_type, task_type)
+                    msg = (
+                        f"{label}\n\n"
+                        f"🖥️ VM: <b>{vm_name}</b> (VMID: {vmid})\n"
+                        f"👤 操作者: <code>{operator}</code>\n"
+                        f"📌 節點: <code>{node_name}</code>\n"
+                        f"🔀 叢集: {self.cluster_name}\n"
+                        f"📅 時間: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                    self.send_telegram_notification(msg)
+                    log.notified_telegram = True
+                    log.save(update_fields=["notified_telegram"])
+
+        if new_count > 0:
+            print(f"  📋 新增 {new_count} 筆 VM 操作記錄")
+
     def detect_config_drift(self, vm_id: int, vm_name: str, vm_config: Dict[str, Any],
                             current_tags: List[str], network_interfaces: List[Dict] = None,
                             current_node: str = None) -> List[Dict]:
@@ -1809,6 +1914,8 @@ class OptimizedPVEToNetBoxSync:
             print("\n" + "=" * 50)
             print("✓ 節點同步成功")
             vms_success, success_count, total_count = self.sync_pve_virtual_machines(devices, cluster)
+            print("\n同步 VM 操作記錄...")
+            self.sync_vm_tasks()
             elapsed = time.time() - start_time
             self.stats['elapsed_time'] = elapsed
             self.stats['total_vms'] = total_count

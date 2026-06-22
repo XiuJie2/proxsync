@@ -12,6 +12,7 @@ from .choices import (
     SyncJobStatusChoices,
     SyncJobTriggerChoices,
     SyncScheduleChoices,
+    VmTaskTypeChoices,
     WebhookEventChoices,
 )
 
@@ -514,3 +515,55 @@ class VmProvisioningLog(NetBoxModel):
         ("chk_qemu_install", "安裝 qemu-guest-agent 套件"),
         ("chk_qemu_enable",  "啟用並啟動 qemu-guest-agent 服務"),
     ]
+
+
+class PveVmTaskLog(NetBoxModel):
+    """Records VM lifecycle operations fetched from PVE task history."""
+
+    upid         = models.CharField(max_length=300, unique=True, verbose_name="UPID")
+    vmid         = models.IntegerField(verbose_name="VM ID")
+    vm_name      = models.CharField(max_length=200, blank=True, verbose_name="VM 名稱")
+    cluster_name = models.CharField(max_length=100, verbose_name="叢集")
+    node         = models.CharField(max_length=100, verbose_name="節點")
+    task_type    = models.CharField(max_length=30, choices=VmTaskTypeChoices, verbose_name="操作類型")
+    operator     = models.CharField(max_length=200, verbose_name="操作者")
+    start_time   = models.DateTimeField(verbose_name="開始時間")
+    end_time     = models.DateTimeField(null=True, blank=True, verbose_name="結束時間")
+    status       = models.CharField(max_length=50, blank=True, verbose_name="狀態")
+    notified_telegram = models.BooleanField(default=False, verbose_name="已通知")
+
+    NOTIFY_TYPES = {"qmdestroy", "qmclone", "qmrestore"}
+
+    TASK_ICONS = {
+        "qmcreate":  ("mdi mdi-plus-circle", "success"),
+        "qmdestroy": ("mdi mdi-delete",       "danger"),
+        "qmclone":   ("mdi mdi-content-copy", "info"),
+        "qmmigrate": ("mdi mdi-transfer",     "warning"),
+        "qmrestore": ("mdi mdi-restore",      "primary"),
+        "vzdump":    ("mdi mdi-backup-restore","secondary"),
+    }
+
+    class Meta:
+        ordering = ["-start_time"]
+        indexes = [
+            models.Index(fields=["vmid", "cluster_name"]),
+            models.Index(fields=["task_type"]),
+            models.Index(fields=["operator"]),
+            models.Index(fields=["start_time"]),
+        ]
+        verbose_name = "VM Task Log"
+        verbose_name_plural = "VM Task Logs"
+
+    def __str__(self):
+        return f"{self.get_task_type_display()} — {self.vm_name} (VMID {self.vmid}) by {self.operator}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:pve_sync_plugin:pvevmtasklog_list")
+
+    @property
+    def task_icon(self):
+        return self.TASK_ICONS.get(self.task_type, ("mdi mdi-history", "secondary"))
+
+    @property
+    def status_ok(self):
+        return self.status == "OK"

@@ -9,6 +9,7 @@ from pve_sync_plugin.models import (
     PveClusterConfig,
     PvePluginSettings,
     PveSyncJob,
+    PveVmTaskLog,
     PveWebhookEvent,
     VmProvisioningLog,
 )
@@ -175,5 +176,21 @@ class VmProvisioningLogSerializer(NetBoxModelSerializer):
             "cpu", "ram_gb", "disk_gb",
             "management_ip", "management_gw", "internet_ip", "internet_gw",
             "status", "notes", "checklist",
+            "created", "last_updated",
+        ]
+
+
+class PveVmTaskLogSerializer(NetBoxModelSerializer):
+    url = serializers.HyperlinkedIdentityField(
+        view_name="plugins-api:pve_sync_plugin-api:pvevmtasklog-detail",
+    )
+
+    class Meta:
+        model = PveVmTaskLog
+        fields = [
+            "id", "url", "display",
+            "upid", "vmid", "vm_name", "cluster_name", "node",
+            "task_type", "operator", "start_time", "end_time",
+            "status", "notified_telegram",
             "created", "last_updated",
         ]

@@ -49,6 +49,7 @@ from .models import (
     PveDriftEvent,
     PvePluginSettings,
     PveSyncJob,
+    PveVmTaskLog,
     PveWebhookEvent,
     VmProvisioningLog,
 )
@@ -58,6 +59,7 @@ from .tables import (
     PveClusterConfigTable,
     PveDriftEventTable,
     PveSyncJobTable,
+    PveVmTaskLogTable,
     PveWebhookEventTable,
     VmProvisioningLogTable,
 )
@@ -340,6 +342,25 @@ class PveDriftEventDeleteView(generic.ObjectDeleteView):
 class PveDriftEventBulkDeleteView(generic.BulkDeleteView):
     queryset = PveDriftEvent.objects.all()
     table = PveDriftEventTable
+
+
+# ============================================================================
+# PveVmTaskLog — read-only list from PVE task history
+# ============================================================================
+
+class PveVmTaskLogListView(generic.ObjectListView):
+    queryset = PveVmTaskLog.objects.order_by("-start_time")
+    table = PveVmTaskLogTable
+    template_name = "pve_sync/pvevmtasklog_list.html"
+
+
+class PveVmTaskLogDeleteView(generic.ObjectDeleteView):
+    queryset = PveVmTaskLog.objects.all()
+
+
+class PveVmTaskLogBulkDeleteView(generic.BulkDeleteView):
+    queryset = PveVmTaskLog.objects.all()
+    table = PveVmTaskLogTable
 
 
 # ============================================================================

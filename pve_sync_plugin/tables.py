@@ -10,6 +10,7 @@ from .models import (
     PveClusterConfig,
     PveDriftEvent,
     PveSyncJob,
+    PveVmTaskLog,
     PveWebhookEvent,
     VmProvisioningLog,
 )
@@ -299,3 +300,27 @@ class VmProvisioningLogTable(NetBoxTable):
                   "management_ip", "internet_ip", "created")
         default_columns = ("vm_name", "vmid", "cluster_name", "node", "status",
                            "management_ip", "internet_ip")
+
+
+# ---------------------------------------------------------------------------
+# PveVmTaskLog
+# ---------------------------------------------------------------------------
+
+class PveVmTaskLogTable(NetBoxTable):
+    vm_name      = tables.Column(verbose_name="VM 名稱")
+    vmid         = tables.Column(verbose_name="VM ID")
+    cluster_name = tables.Column(verbose_name="叢集")
+    node         = tables.Column(verbose_name="節點")
+    task_type    = columns.ChoiceFieldColumn(verbose_name="操作類型")
+    operator     = tables.Column(verbose_name="操作者")
+    start_time   = columns.DateTimeColumn(verbose_name="時間")
+    status       = tables.Column(verbose_name="結果")
+    notified_telegram = columns.BooleanColumn(verbose_name="已通知")
+    actions      = columns.ActionsColumn(actions=("delete",))
+
+    class Meta(NetBoxTable.Meta):
+        model = PveVmTaskLog
+        fields = ("pk", "vm_name", "vmid", "cluster_name", "node",
+                  "task_type", "operator", "start_time", "status", "notified_telegram")
+        default_columns = ("vm_name", "vmid", "cluster_name", "node",
+                           "task_type", "operator", "start_time", "status")

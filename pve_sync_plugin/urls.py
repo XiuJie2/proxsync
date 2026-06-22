@@ -10,7 +10,7 @@ from django.urls import path
 from netbox.views.generic import ObjectChangeLogView
 
 from . import views
-from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveWebhookEvent, VmProvisioningLog
+from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveVmTaskLog, PveWebhookEvent, VmProvisioningLog
 
 app_name = "pve_sync_plugin"
 
@@ -180,6 +180,13 @@ urlpatterns = [
         name="pvedriftevent_changelog",
         kwargs={"model": PveDriftEvent},
     ),
+
+    # --- PveVmTaskLog ---
+    path("task-logs/", views.PveVmTaskLogListView.as_view(), name="pvevmtasklog_list"),
+    path("task-logs/<int:pk>/delete/", views.PveVmTaskLogDeleteView.as_view(), name="pvevmtasklog_delete"),
+    path("task-logs/delete/", views.PveVmTaskLogBulkDeleteView.as_view(), name="pvevmtasklog_bulk_delete"),
+    path("task-logs/<int:pk>/changelog/", ObjectChangeLogView.as_view(),
+         name="pvevmtasklog_changelog", kwargs={"model": PveVmTaskLog}),
 
     # IP probe APIs (used by provisioning form)
     path("provisioning/free-ips/<int:range_id>/", views.VmPlannerFreeIpsApi.as_view(), name="vm-planner-free-ips"),

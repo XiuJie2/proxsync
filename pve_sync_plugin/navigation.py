@@ -75,6 +75,11 @@ vm_provisioning_item = PluginMenuItem(
     link_text="VM 佈建",
 )
 
+vm_task_log_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:pvevmtasklog_list",
+    link_text="VM 操作記錄",
+)
+
 menu = PluginMenu(
     label="Proxmox Sync",
     groups=(
@@ -92,7 +97,7 @@ menu = PluginMenu(
         ),
         (
             "VM Operations",
-            (vm_provisioning_item,),
+            (vm_provisioning_item, vm_task_log_item),
         ),
         (
             "Configuration",

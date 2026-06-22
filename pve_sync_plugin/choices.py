@@ -45,6 +45,15 @@ class SyncScheduleChoices(models.TextChoices):
     WEEKLY = "weekly", "Weekly"
 
 
+class VmTaskTypeChoices(models.TextChoices):
+    CREATE  = "qmcreate",  "建立 VM"
+    DESTROY = "qmdestroy", "刪除 VM"
+    CLONE   = "qmclone",   "Clone VM"
+    MIGRATE = "qmmigrate", "遷移 VM"
+    RESTORE = "qmrestore", "還原 VM"
+    BACKUP  = "vzdump",    "備份 VM"
+
+
 class DriftTypeChoices(models.TextChoices):
     HARDWARE = "hardware", "硬體配置變更"
     MIGRATION = "migration", "VM 遷移"

@@ -1,0 +1,10 @@
+{% extends 'generic/object_list.html' %}
+{% load helpers %}
+
+{% block title %}VM 操作記錄{% endblock %}
+
+{% block extra_controls %}
+<div class="d-flex gap-2 align-items-center">
+  <span class="text-muted small">由 PVE Task History API 自動同步</span>
+</div>
+{% endblock %}

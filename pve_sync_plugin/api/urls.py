@@ -9,7 +9,7 @@ from netbox.api.routers import NetBoxRouter
 from pve_sync_plugin import views as plugin_views
 
 from . import views as api_views
-from .views import VmProvisioningLogViewSet
+from .views import PveVmTaskLogViewSet, VmProvisioningLogViewSet
 
 app_name = "pve_sync_plugin-api"
 
@@ -22,6 +22,7 @@ router.register("clusters", api_views.PveClusterConfigViewSet)
 router.register("backup-status", api_views.PveBackupStatusViewSet)
 router.register("settings", api_views.PvePluginSettingsViewSet)
 router.register("provisioning", api_views.VmProvisioningLogViewSet)
+router.register("task-logs", api_views.PveVmTaskLogViewSet)
 
 urlpatterns = [
     path("webhook/", plugin_views.webhook_receiver, name="webhook"),

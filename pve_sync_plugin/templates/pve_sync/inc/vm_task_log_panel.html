@@ -1,0 +1,57 @@
+{% load helpers %}
+
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0"><i class="mdi mdi-history me-2"></i>PVE 操作記錄</h5>
+    <a href="{% url 'plugins:pve_sync_plugin:pvevmtasklog_list' %}?vmid={{ vmid }}"
+       class="btn btn-sm btn-outline-secondary">查看全部</a>
+  </div>
+  <div class="card-body p-0">
+    {% if task_logs %}
+    <table class="table table-hover table-sm mb-0">
+      <thead class="table-secondary">
+        <tr>
+          <th>操作類型</th>
+          <th>操作者</th>
+          <th>節點</th>
+          <th>時間</th>
+          <th>結果</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in task_logs %}
+        <tr>
+          <td>
+            {% with log.task_icon as icon %}
+            <i class="{{ icon.0 }} text-{{ icon.1 }} me-1"></i>
+            {{ log.get_task_type_display }}
+            {% endwith %}
+          </td>
+          <td><code>{{ log.operator }}</code></td>
+          <td>{{ log.node }}</td>
+          <td>
+            <span title="{{ log.start_time }}">
+              {{ log.start_time|date:"Y-m-d H:i:s" }}
+            </span>
+          </td>
+          <td>
+            {% if log.status_ok %}
+              <span class="badge bg-success">OK</span>
+            {% elif log.status %}
+              <span class="badge bg-danger" title="{{ log.status }}">ERROR</span>
+            {% else %}
+              <span class="badge bg-secondary">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center text-muted py-4">
+      <i class="mdi mdi-history mdi-48px d-block mb-2"></i>
+      尚無操作記錄（下次同步後自動載入）
+    </div>
+    {% endif %}
+  </div>
+</div>
