@@ -181,16 +181,13 @@ urlpatterns = [
         kwargs={"model": PveDriftEvent},
     ),
 
-    # VM Provisioning Planner
-    path("vm-planner/", views.VmPlannerView.as_view(), name="vm-planner"),
-    path("vm-planner/nodes/", views.VmPlannerNodesApi.as_view(), name="vm-planner-nodes"),
-    path("vm-planner/free-ips/<int:range_id>/", views.VmPlannerFreeIpsApi.as_view(), name="vm-planner-free-ips"),
-    path("vm-planner/check-ip/", views.VmPlannerCheckIpApi.as_view(), name="vm-planner-check-ip"),
+    # IP probe APIs (used by provisioning form)
+    path("provisioning/free-ips/<int:range_id>/", views.VmPlannerFreeIpsApi.as_view(), name="vm-planner-free-ips"),
+    path("provisioning/check-ip/", views.VmPlannerCheckIpApi.as_view(), name="vm-planner-check-ip"),
 
     # VM Provisioning — combined planner + list
     path("provisioning/", views.VmProvisioningCombinedView.as_view(), name="vmprovisioninglog_list"),
     path("provisioning/<int:pk>/", views.VmProvisioningLogView.as_view(), name="vmprovisioninglog"),
-    path("provisioning/<int:pk>/checklist/", views.VmProvisioningLogChecklistApi.as_view(), name="vmprovisioninglog_checklist"),
     path("provisioning/<int:pk>/delete/", views.VmProvisioningLogDeleteView.as_view(), name="vmprovisioninglog_delete"),
     path("provisioning/<int:pk>/changelog/", ObjectChangeLogView.as_view(),
          name="vmprovisioninglog_changelog", kwargs={"model": VmProvisioningLog}),

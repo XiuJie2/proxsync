@@ -463,14 +463,8 @@ class TriggerVmSyncView(PermissionRequiredMixin, View):
 
 
 # ============================================================================
-# VM Provisioning Planner
+# VM Provisioning
 # ============================================================================
-
-class VmPlannerView(View):
-    """Redirect old vm-planner/ URL to the combined provisioning page."""
-    def get(self, request):
-        return redirect(reverse("plugins:pve_sync_plugin:vmprovisioninglog_list"))
-
 
 class VmProvisioningCombinedView(PermissionRequiredMixin, View):
     """Combined VM provisioning planner + logs list on one page."""
@@ -572,60 +566,8 @@ class VmProvisioningLogView(PermissionRequiredMixin, View):
         return redirect(log.get_absolute_url())
 
 
-class VmProvisioningLogChecklistApi(PermissionRequiredMixin, View):
-    """AJAX — toggle a single checklist item and save to DB."""
-
-    permission_required = "pve_sync_plugin.view_pveclusterconfig"
-
-    def post(self, request, pk):
-        log = get_object_or_404(VmProvisioningLog, pk=pk)
-        try:
-            data = json.loads(request.body)
-            key   = str(data.get("key", ""))
-            value = bool(data.get("value", False))
-            if not key.startswith("chk_"):
-                return JsonResponse({"ok": False, "error": "invalid key"}, status=400)
-            checklist = dict(log.checklist)
-            checklist[key] = value
-            log.checklist = checklist
-            log.save()
-            return JsonResponse({"ok": True})
-        except Exception as exc:
-            logger.warning("checklist update failed pk=%s: %s", pk, exc)
-            return JsonResponse({"ok": False, "error": str(exc)}, status=500)
-
-
 class VmProvisioningLogDeleteView(generic.ObjectDeleteView):
     queryset = VmProvisioningLog.objects.all()
-
-
-class VmPlannerNodesApi(PermissionRequiredMixin, View):
-    """AJAX — return the device nodes for a given PVE cluster name."""
-
-    permission_required = "pve_sync_plugin.view_pveclusterconfig"
-    raise_exception = True  # Return 403 JSON-safe instead of redirecting to login
-
-    def get(self, request):
-        from dcim.models import Device
-        cluster_name = request.GET.get("cluster", "").strip()
-        if not cluster_name:
-            return JsonResponse({"nodes": []})
-
-        try:
-            cluster_cfg = PveClusterConfig.objects.get(name=cluster_name)
-        except PveClusterConfig.DoesNotExist:
-            return JsonResponse({"nodes": []})
-
-        if not cluster_cfg.netbox_cluster_id:
-            return JsonResponse({"nodes": []})
-
-        nodes = (
-            Device.objects
-            .filter(cluster_id=cluster_cfg.netbox_cluster_id)
-            .order_by("name")
-            .values_list("name", flat=True)
-        )
-        return JsonResponse({"nodes": list(nodes)})
 
 
 class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
