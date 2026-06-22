@@ -12,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from netbox.views import generic
+from netbox.object_actions import BulkDelete
 from dcim.models import Device
 from virtualization.models import VirtualMachine
 
@@ -521,6 +522,8 @@ class VmPlannerView(PermissionRequiredMixin, View):
 class VmProvisioningLogListView(generic.ObjectListView):
     queryset = VmProvisioningLog.objects.all()
     table    = VmProvisioningLogTable
+    # No "Add" button — use VM Planner (sidebar "New VM") to create logs
+    actions  = (BulkDelete,)
 
 
 class VmProvisioningLogView(PermissionRequiredMixin, View):
