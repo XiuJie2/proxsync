@@ -189,6 +189,7 @@ urlpatterns = [
     # VM Provisioning Logs
     path("provisioning/", views.VmProvisioningLogListView.as_view(), name="vmprovisioninglog_list"),
     path("provisioning/<int:pk>/", views.VmProvisioningLogView.as_view(), name="vmprovisioninglog"),
+    path("provisioning/<int:pk>/checklist/", views.VmProvisioningLogChecklistApi.as_view(), name="vmprovisioninglog_checklist"),
     path("provisioning/<int:pk>/delete/", views.VmProvisioningLogDeleteView.as_view(), name="vmprovisioninglog_delete"),
     path("provisioning/<int:pk>/changelog/", ObjectChangeLogView.as_view(),
          name="vmprovisioninglog_changelog", kwargs={"model": VmProvisioningLog}),

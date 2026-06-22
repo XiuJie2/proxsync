@@ -534,30 +534,38 @@ class VmProvisioningLogView(PermissionRequiredMixin, View):
         return render(request, "pve_sync/vm_provisioning_log.html", {"object": log})
 
     def post(self, request, pk):
+        """Update status and notes (checklist is updated via separate AJAX endpoint)."""
         log = get_object_or_404(VmProvisioningLog, pk=pk)
-
-        if "status" in request.POST:
-            new_status = request.POST.get("status")
-            if new_status in dict(VmProvisioningLog.STATUS_CHOICES):
-                log.status = new_status
-
-        # Update checklist items sent from the detail page
-        new_checklist = dict(log.checklist)
-        for key, val in request.POST.items():
-            if key.startswith("chk_"):
-                new_checklist[key] = (val == "on")
-        # Unchecked items arrive as companion hidden fields
-        for key, val in request.POST.items():
-            if key.startswith("chk_exists_"):
-                chk_key = key.replace("chk_exists_", "chk_")
-                if chk_key not in request.POST:
-                    new_checklist[chk_key] = False
-
-        log.checklist = new_checklist
+        new_status = request.POST.get("status")
+        if new_status in dict(VmProvisioningLog.STATUS_CHOICES):
+            log.status = new_status
         log.notes = request.POST.get("notes", log.notes)
         log.save()
-        messages.success(request, "記錄已更新。")
+        messages.success(request, "狀態 / 備註已更新。")
         return redirect(log.get_absolute_url())
+
+
+class VmProvisioningLogChecklistApi(PermissionRequiredMixin, View):
+    """AJAX — toggle a single checklist item and save to DB."""
+
+    permission_required = "pve_sync_plugin.view_pveclusterconfig"
+
+    def post(self, request, pk):
+        log = get_object_or_404(VmProvisioningLog, pk=pk)
+        try:
+            data = json.loads(request.body)
+            key   = str(data.get("key", ""))
+            value = bool(data.get("value", False))
+            if not key.startswith("chk_"):
+                return JsonResponse({"ok": False, "error": "invalid key"}, status=400)
+            checklist = dict(log.checklist)
+            checklist[key] = value
+            log.checklist = checklist
+            log.save()
+            return JsonResponse({"ok": True})
+        except Exception as exc:
+            logger.warning("checklist update failed pk=%s: %s", pk, exc)
+            return JsonResponse({"ok": False, "error": str(exc)}, status=500)
 
 
 class VmProvisioningLogDeleteView(generic.ObjectDeleteView):
