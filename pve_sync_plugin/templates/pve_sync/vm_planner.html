@@ -297,6 +297,12 @@
 <script>
 const FREE_IPS_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-free-ips' range_id=0 %}".replace('/0/', '/');
 
+function getLastOctet(ip) {
+  if (!ip) return null;
+  const parts = ip.trim().split('.');
+  return parts.length === 4 ? parts[3] : null;
+}
+
 function loadFreeIps(nic, rangeId) {
   const select = document.getElementById(nic + '_ip_select');
   const input  = document.getElementById(nic + '_ip_input');
@@ -313,10 +319,19 @@ function loadFreeIps(nic, rangeId) {
   status.innerHTML = '<span class="text-muted">載入空閒 IP 中...</span>';
   select.disabled = true;
 
-  fetch(FREE_IPS_URL + rangeId + '/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+  // If loading internet NIC, try to align last octet with management NIC
+  let url = FREE_IPS_URL + rangeId + '/';
+  if (nic === 'inet') {
+    const mgmtIp = document.getElementById('mgmt_ip_input').value;
+    const octet = getLastOctet(mgmtIp);
+    if (octet) url += '?prefer_last_octet=' + octet;
+  }
+
+  fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
     .then(r => r.json())
     .then(data => {
       if (data.error) { status.textContent = '錯誤：' + data.error; return; }
+
       select.innerHTML = '<option value="">— 選擇空閒 IP —</option>';
       data.free_ips.forEach(function(item) {
         const opt = document.createElement('option');
@@ -325,12 +340,28 @@ function loadFreeIps(nic, rangeId) {
         select.appendChild(opt);
       });
       select.disabled = false;
-      if (data.free_ips.length > 0) {
-        select.value = data.free_ips[0].ip;
-        input.value  = data.free_ips[0].ip;
-        status.innerHTML = '<span class="text-success">找到 ' + data.free_ips.length + ' 個空閒 IP，已自動選擇第一個</span>';
-      } else {
+
+      if (data.free_ips.length === 0) {
         status.innerHTML = '<span class="text-danger">此 Range 無空閒 IP</span>';
+        return;
+      }
+
+      // Pick preferred (same last octet) if available, otherwise first free
+      const chosen = data.preferred || data.free_ips[0];
+      select.value = chosen.ip;
+      input.value  = chosen.ip;
+
+      if (data.preferred) {
+        const mgmtIp = document.getElementById('mgmt_ip_input').value;
+        const octet  = getLastOctet(mgmtIp);
+        status.innerHTML = '<span class="text-success"><i class="mdi mdi-link"></i> 依 Management IP 末位 <strong>.' + octet + '</strong> 自動選擇 ' + chosen.ip + '</span>';
+      } else if (nic === 'inet') {
+        const mgmtIp = document.getElementById('mgmt_ip_input').value;
+        const octet  = getLastOctet(mgmtIp);
+        const note   = octet ? '（末位 .' + octet + ' 已被使用，改用第一個空閒）' : '';
+        status.innerHTML = '<span class="text-warning">自動選擇第一個空閒 IP ' + note + '</span>';
+      } else {
+        status.innerHTML = '<span class="text-success">找到 ' + data.free_ips.length + ' 個空閒 IP，已自動選擇第一個</span>';
       }
     })
     .catch(e => { status.textContent = '請求失敗：' + e; });
@@ -341,6 +372,14 @@ function syncIpInput(nic) {
   const inp = document.getElementById(nic + '_ip_input');
   if (sel.value) inp.value = sel.value;
 }
+
+// When management IP changes manually, refresh internet NIC suggestion if range is selected
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('mgmt_ip_input').addEventListener('change', function() {
+    const inetRangeId = document.getElementById('inet_range').value;
+    if (inetRangeId) loadFreeIps('inet', inetRangeId);
+  });
+});
 
 // ── Checklist persistence ──
 const STORAGE_KEY = 'proxsync_vm_planner_checklist';

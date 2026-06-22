@@ -522,7 +522,7 @@ class VmPlannerView(PermissionRequiredMixin, View):
 
 
 class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
-    """AJAX — return the first N free IPs for an IP Range."""
+    """AJAX — return free IPs for an IP Range, optionally biased toward a preferred last octet."""
 
     permission_required = "pve_sync_plugin.view_pveclusterconfig"
 
@@ -535,21 +535,19 @@ class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
         except IPRange.DoesNotExist:
             return JsonResponse({"error": "Range not found"}, status=404)
 
-        start_ip = ip_range.start_address.ip
-        end_ip = ip_range.end_address.ip
+        start_ip = ip_range.start_address.ip   # netaddr.IPAddress
+        end_ip   = ip_range.end_address.ip
         prefix_len = ip_range.start_address.prefixlen
 
-        used = set(
-            str(addr.ip)
-            for addr in (
-                obj.address
-                for obj in IPAddress.objects.filter(
-                    address__gte=str(start_ip),
-                    address__lte=str(end_ip),
-                )
-            )
-        )
+        # Fetch all IPAddresses once and filter in Python — avoids inet prefix
+        # comparison issues with PostgreSQL __gte/__lte on mixed prefix-length values.
+        used = set()
+        for addr in IPAddress.objects.all().values_list("address", flat=True):
+            h = addr.ip  # netaddr.IPAddress (host part)
+            if start_ip <= h <= end_ip:
+                used.add(str(h))
 
+        # Build free list; keep up to 50 entries
         free = []
         for ip in netaddr.IPRange(str(start_ip), str(end_ip)):
             if str(ip) not in used:
@@ -557,10 +555,21 @@ class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
             if len(free) >= 50:
                 break
 
+        # Preferred last octet — client sends ?prefer_last_octet=224 so we
+        # can surface the same-octet IP first if it's free.
+        prefer = request.GET.get("prefer_last_octet", "").strip()
+        preferred = None
+        if prefer.isdigit():
+            octet = int(prefer)
+            match = next((f for f in free if int(f["ip"].split(".")[-1]) == octet), None)
+            if match:
+                preferred = match
+
         return JsonResponse({
             "prefix_len": prefix_len,
             "range_display": f"{start_ip} – {end_ip}",
             "free_ips": free,
+            "preferred": preferred,   # None if same-octet IP is already taken
         })
 
 
