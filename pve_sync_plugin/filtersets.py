@@ -10,6 +10,7 @@ from .choices import (
     SyncJobStatusChoices,
     SyncJobTriggerChoices,
     SyncScheduleChoices,
+    VmTaskTypeChoices,
     WebhookEventChoices,
 )
 from .models import (
@@ -18,6 +19,7 @@ from .models import (
     PveClusterConfig,
     PveDriftEvent,
     PveSyncJob,
+    PveVmTaskLog,
     PveWebhookEvent,
 )
 
@@ -118,6 +120,29 @@ class PveDriftEventFilterSet(NetBoxModelFilterSet):
         if not value.strip():
             return queryset
         return queryset.filter(vm_name__icontains=value) | queryset.filter(cluster_name__icontains=value)
+
+
+class PveVmTaskLogFilterSet(NetBoxModelFilterSet):
+    """Filter VM task logs by type, operator, cluster, and VM."""
+
+    task_type    = django_filters.MultipleChoiceFilter(choices=VmTaskTypeChoices.choices)
+    vmid         = django_filters.NumberFilter()
+    cluster_name = django_filters.CharFilter(lookup_expr="icontains")
+    operator     = django_filters.CharFilter(lookup_expr="icontains")
+    node         = django_filters.CharFilter(lookup_expr="icontains")
+
+    class Meta:
+        model = PveVmTaskLog
+        fields = ["id", "vmid", "task_type", "cluster_name", "operator", "node"]
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return (
+            queryset.filter(vm_name__icontains=value)
+            | queryset.filter(operator__icontains=value)
+            | queryset.filter(cluster_name__icontains=value)
+        )
 
 
 class PveBackupStatusFilterSet(NetBoxModelFilterSet):

@@ -1235,6 +1235,23 @@ class OptimizedPVEToNetBoxSync:
             print(f"⚠️ 清理孤兒 VM 失敗: {exc}")
             traceback.print_exc()
 
+    def _apply_log_retention(self):
+        """依 PvePluginSettings.log_retention_days 清理過期記錄。"""
+        try:
+            import datetime as _dt
+            from django.utils import timezone
+            from pve_sync_plugin.models import PveDriftEvent, PvePluginSettings, PveVmTaskLog
+            days = PvePluginSettings.load().log_retention_days
+            if not days:
+                return
+            cutoff = timezone.now() - _dt.timedelta(days=days)
+            d_del, _ = PveDriftEvent.objects.filter(created__lt=cutoff).delete()
+            t_del, _ = PveVmTaskLog.objects.filter(start_time__lt=cutoff).delete()
+            if d_del or t_del:
+                print(f"  🧹 Log 清理：刪除 {d_del} 筆漂移事件、{t_del} 筆操作記錄（>{days} 天）")
+        except Exception as exc:
+            print(f"  ⚠️ Log 清理失敗: {exc}")
+
     def sync_vm_tasks(self):
         """從 PVE 各節點抓取 VM 操作記錄（建立/刪除/Clone/遷移）並同步到 NetBox。"""
         try:
@@ -1271,7 +1288,15 @@ class OptimizedPVEToNetBoxSync:
         # 只通知最近 2 小時內的操作（避免首次匯入時大量通知）
         notify_cutoff = time.time() - 7200
 
-        since_ts = int(time.time()) - 30 * 86400  # 抓最近 30 天
+        # 從上次已存記錄的最新時間起算（+1 秒避免邊界重複）；首次則抓 30 天
+        latest = PveVmTaskLog.objects.filter(
+            cluster_name=self.cluster_name
+        ).order_by("-start_time").values_list("start_time", flat=True).first()
+        if latest:
+            import calendar
+            since_ts = int(calendar.timegm(latest.utctimetuple())) + 1
+        else:
+            since_ts = int(time.time()) - 30 * 86400
         new_count = 0
 
         for node_name in self.pve_cache.get("vms_by_node", {}):
@@ -1931,6 +1956,7 @@ class OptimizedPVEToNetBoxSync:
             vms_success, success_count, total_count = self.sync_pve_virtual_machines(devices, cluster)
             print("\n同步 VM 操作記錄...")
             self.sync_vm_tasks()
+            self._apply_log_retention()
             elapsed = time.time() - start_time
             self.stats['elapsed_time'] = elapsed
             self.stats['total_vms'] = total_count

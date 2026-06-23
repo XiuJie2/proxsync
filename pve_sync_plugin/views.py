@@ -30,6 +30,7 @@ from .filtersets import (
     PveClusterConfigFilterSet,
     PveDriftEventFilterSet,
     PveSyncJobFilterSet,
+    PveVmTaskLogFilterSet,
     PveWebhookEventFilterSet,
 )
 from .forms import (
@@ -351,6 +352,7 @@ class PveDriftEventBulkDeleteView(generic.BulkDeleteView):
 class PveVmTaskLogListView(generic.ObjectListView):
     queryset = PveVmTaskLog.objects.order_by("-start_time")
     table = PveVmTaskLogTable
+    filterset = PveVmTaskLogFilterSet
     template_name = "pve_sync/pvevmtasklog_list.html"
 
 
@@ -666,13 +668,12 @@ class VmPlannerCheckIpApi(PermissionRequiredMixin, View):
         ip_str = str(ip_obj)
 
         # ── 1. IPAM check (authoritative) ──
-        # An IP can be stored as any prefix length (e.g. /16, /24, /32).
-        # Compare only the host part to find any existing allocation.
-        ipam_entry = None
-        for addr in NetBoxIPAddress.objects.all().values_list("address", flat=True):
-            if str(addr.ip) == ip_str:
-                ipam_entry = str(addr)   # e.g. "172.17.202.11/16"
-                break
+        # Filter by host bits using __net_host_contained: finds any /N record
+        # whose host address matches ip_str, without a full table scan.
+        ipam_qs = NetBoxIPAddress.objects.filter(
+            address__net_host_contained=ip_str
+        ).values_list("address", flat=True).first()
+        ipam_entry = str(ipam_qs) if ipam_qs else None
 
         if ipam_entry:
             return JsonResponse({
