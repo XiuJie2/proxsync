@@ -1243,14 +1243,21 @@ class OptimizedPVEToNetBoxSync:
         except ImportError:
             return
 
-        VM_TASK_TYPES = {"qmcreate", "qmdestroy", "qmclone", "qmmigrate", "qmrestore"}
-        NOTIFY_TYPES  = {"qmdestroy", "qmclone", "qmrestore"}
+        VM_TASK_TYPES = {
+            "qmcreate", "qmdestroy", "qmclone", "qmmigrate", "qmrestore",
+            "qmstart", "qmstop", "qmshutdown", "qmreboot",
+        }
+        NOTIFY_TYPES  = {"qmdestroy", "qmclone", "qmrestore", "qmshutdown", "qmstop"}
         TASK_LABELS   = {
-            "qmcreate":  "🆕 VM 建立",
-            "qmdestroy": "🗑️ VM 刪除",
-            "qmclone":   "📋 VM Clone",
-            "qmmigrate": "🔀 VM 遷移",
-            "qmrestore": "♻️ VM 還原",
+            "qmcreate":   "🆕 VM 建立",
+            "qmdestroy":  "🗑️ VM 刪除",
+            "qmclone":    "📋 VM Clone",
+            "qmmigrate":  "🔀 VM 遷移",
+            "qmrestore":  "♻️ VM 還原",
+            "qmstart":    "▶️ VM 開機",
+            "qmstop":     "⏹️ VM 強制關機",
+            "qmshutdown": "🔽 VM 正常關機",
+            "qmreboot":   "🔄 VM 重新開機",
         }
 
         # 從 NetBox cache 建立 vmid → vm_name 對照
@@ -1683,14 +1690,18 @@ class OptimizedPVEToNetBoxSync:
                     # 但 state_db 仍有舊 hash 導致增量跳過。強制往下完整同步。
                     print(f"  ⚠️  VM {original_vm_name} 不在 NetBox 中，忽略增量記錄強制建立")
                 else:
-                    # VM 存在；確保 device 關聯指向正確節點
+                    # VM 存在；確保 device 關聯、cluster 關聯、電源狀態都是最新的
                     current_device_id = getattr(getattr(cached_vm, 'device', None), 'id', None)
                     current_cluster_id = getattr(getattr(cached_vm, 'cluster', None), 'id', None)
+                    current_status = getattr(getattr(cached_vm, 'status', None), 'value', None) \
+                                     or str(getattr(cached_vm, 'status', ''))
                     fix = {}
                     if current_device_id != device.id:
                         fix['device'] = device.id
                     if current_cluster_id != cluster['id']:
                         fix['cluster'] = cluster['id']
+                    if current_status != status:
+                        fix['status'] = status
                     if fix:
                         try:
                             cached_vm.update(fix)
@@ -1698,6 +1709,8 @@ class OptimizedPVEToNetBoxSync:
                                 print(f"  ✓ VM {original_vm_name} 叢集關聯已修正: → {cluster['name']}")
                             if 'device' in fix:
                                 print(f"  ✓ VM {original_vm_name} 設備關聯已修正: → {device.name}")
+                            if 'status' in fix:
+                                print(f"  ✓ VM {original_vm_name} 電源狀態更新: {current_status} → {status}")
                         except Exception as e:
                             print(f"  ✗ 更新 VM {original_vm_name} 關聯失敗: {e}")
                     print(f"  ℹ️  VM {original_vm_name} 無配置變更，跳過同步")

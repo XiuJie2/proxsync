@@ -46,12 +46,16 @@ class SyncScheduleChoices(models.TextChoices):
 
 
 class VmTaskTypeChoices(models.TextChoices):
-    CREATE  = "qmcreate",  "建立 VM"
-    DESTROY = "qmdestroy", "刪除 VM"
-    CLONE   = "qmclone",   "Clone VM"
-    MIGRATE = "qmmigrate", "遷移 VM"
-    RESTORE = "qmrestore", "還原 VM"
-    BACKUP  = "vzdump",    "備份 VM"
+    CREATE   = "qmcreate",   "建立 VM"
+    DESTROY  = "qmdestroy",  "刪除 VM"
+    CLONE    = "qmclone",    "Clone VM"
+    MIGRATE  = "qmmigrate",  "遷移 VM"
+    RESTORE  = "qmrestore",  "還原 VM"
+    BACKUP   = "vzdump",     "備份 VM"
+    START    = "qmstart",    "開機"
+    STOP     = "qmstop",     "強制關機"
+    SHUTDOWN = "qmshutdown", "正常關機"
+    REBOOT   = "qmreboot",   "重新開機"
 
 
 class DriftTypeChoices(models.TextChoices):

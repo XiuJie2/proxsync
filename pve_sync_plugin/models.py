@@ -535,12 +535,16 @@ class PveVmTaskLog(NetBoxModel):
     NOTIFY_TYPES = {"qmdestroy", "qmclone", "qmrestore"}
 
     TASK_ICONS = {
-        "qmcreate":  ("mdi mdi-plus-circle", "success"),
-        "qmdestroy": ("mdi mdi-delete",       "danger"),
-        "qmclone":   ("mdi mdi-content-copy", "info"),
-        "qmmigrate": ("mdi mdi-transfer",     "warning"),
-        "qmrestore": ("mdi mdi-restore",      "primary"),
-        "vzdump":    ("mdi mdi-backup-restore","secondary"),
+        "qmcreate":   ("mdi mdi-plus-circle",   "success"),
+        "qmdestroy":  ("mdi mdi-delete",         "danger"),
+        "qmclone":    ("mdi mdi-content-copy",   "info"),
+        "qmmigrate":  ("mdi mdi-transfer",       "warning"),
+        "qmrestore":  ("mdi mdi-restore",        "primary"),
+        "vzdump":     ("mdi mdi-backup-restore", "secondary"),
+        "qmstart":    ("mdi mdi-play-circle",    "success"),
+        "qmstop":     ("mdi mdi-stop-circle",    "danger"),
+        "qmshutdown": ("mdi mdi-power",          "warning"),
+        "qmreboot":   ("mdi mdi-restart",        "info"),
     }
 
     class Meta:
