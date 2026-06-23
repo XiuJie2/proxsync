@@ -529,7 +529,7 @@ class PveVmTaskLog(NetBoxModel):
     operator     = models.CharField(max_length=200, verbose_name="操作者")
     start_time   = models.DateTimeField(verbose_name="開始時間")
     end_time     = models.DateTimeField(null=True, blank=True, verbose_name="結束時間")
-    status       = models.CharField(max_length=50, blank=True, verbose_name="狀態")
+    status       = models.TextField(blank=True, verbose_name="狀態")
     notified_telegram = models.BooleanField(default=False, verbose_name="已通知")
 
     NOTIFY_TYPES = {"qmdestroy", "qmclone", "qmrestore"}
