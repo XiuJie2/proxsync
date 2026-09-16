@@ -116,7 +116,12 @@
         <div class="row g-2 mb-3">
           <div class="col-7">
             <label class="form-label fw-semibold small"><span class="badge bg-primary">NIC 1</span> Management IP</label>
-            <input type="text" name="management_ip" class="form-control" value="{{ object.management_ip }}">
+            <div class="input-group">
+              <input type="text" name="management_ip" class="form-control" value="{{ object.management_ip|ip_host }}">
+              <span class="input-group-text">/</span>
+              <input type="number" name="management_prefix" class="form-control" style="max-width:4.5rem"
+                     value="{{ object.management_ip|ip_prefix }}" min="1" max="32" title="子網路前綴長度 (CIDR)">
+            </div>
           </div>
           <div class="col-5">
             <label class="form-label fw-semibold small">閘道</label>
@@ -126,7 +131,12 @@
         <div class="row g-2 mb-0">
           <div class="col-7">
             <label class="form-label fw-semibold small"><span class="badge bg-success">NIC 2</span> Internet IP</label>
-            <input type="text" name="internet_ip" class="form-control" value="{{ object.internet_ip }}">
+            <div class="input-group">
+              <input type="text" name="internet_ip" class="form-control" value="{{ object.internet_ip|ip_host }}">
+              <span class="input-group-text">/</span>
+              <input type="number" name="internet_prefix" class="form-control" style="max-width:4.5rem"
+                     value="{{ object.internet_ip|ip_prefix }}" min="1" max="32" title="子網路前綴長度 (CIDR)">
+            </div>
           </div>
           <div class="col-5">
             <label class="form-label fw-semibold small">閘道</label>

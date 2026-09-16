@@ -161,6 +161,9 @@
               </select>
               <input type="text" name="management_ip" id="mgmt_ip_input" class="form-control"
                      placeholder="或手動輸入 IP" oninput="probeIp('mgmt')">
+              <span class="input-group-text">/</span>
+              <input type="number" name="management_prefix" class="form-control" style="max-width:4.5rem"
+                     value="16" min="1" max="32" title="子網路前綴長度 (CIDR)">
               <button type="button" class="btn btn-outline-secondary" onclick="nextFreeIp('mgmt')"
                       title="此 IP 不可用？換下一個空閒 IP">
                 <i class="mdi mdi-refresh"></i>
@@ -202,6 +205,9 @@
               </select>
               <input type="text" name="internet_ip" id="inet_ip_input" class="form-control"
                      placeholder="或手動輸入 IP" oninput="probeIp('inet')">
+              <span class="input-group-text">/</span>
+              <input type="number" name="internet_prefix" class="form-control" style="max-width:4.5rem"
+                     value="16" min="1" max="32" title="子網路前綴長度 (CIDR)">
               <button type="button" class="btn btn-outline-secondary" onclick="nextFreeIp('inet')"
                       title="此 IP 不可用？換下一個空閒 IP">
                 <i class="mdi mdi-refresh"></i>

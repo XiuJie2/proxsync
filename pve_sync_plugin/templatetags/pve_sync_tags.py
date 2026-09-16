@@ -26,6 +26,25 @@ def split(value, sep=","):
     return value.split(sep)
 
 
+@register.filter
+def ip_host(value):
+    """Return the address part of an "ip/prefix" string (or the whole string if no prefix)."""
+    if not value:
+        return ''
+    return value.split('/')[0]
+
+
+@register.filter
+def ip_prefix(value, default=16):
+    """Return the prefix length of an "ip/prefix" string, or `default` if none present."""
+    if not value or '/' not in value:
+        return default
+    try:
+        return int(value.split('/')[1])
+    except (ValueError, IndexError):
+        return default
+
+
 @register.simple_tag
 def pve_sync_button(vm_id=None, cluster='default'):
     """

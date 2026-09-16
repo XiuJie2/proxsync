@@ -1796,9 +1796,13 @@ class OptimizedPVEToNetBoxSync:
         if not ip_str:
             problems.append('尚未取得 IP')
         else:
-            planned_ips = {ip.strip() for ip in (log.management_ip, log.internet_ip) if ip and ip.strip()}
-            if planned_ips and ip_str not in planned_ips:
-                problems.append(f"IP 與規劃不符（規劃: {', '.join(sorted(planned_ips))}，實際: {ip_str}）")
+            # 兩邊都可能帶 CIDR 前綴（NetBox 的 IPAddress.address 如
+            # 172.17.201.7/24，規劃記錄的 IP 位址預設 /16），且前綴不必然
+            # 相同，只比對主機位址本身，避免因前綴不同而誤判不符。
+            ip_only = ip_str.split('/')[0]
+            planned_ips = {ip.strip().split('/')[0] for ip in (log.management_ip, log.internet_ip) if ip and ip.strip()}
+            if planned_ips and ip_only not in planned_ips:
+                problems.append(f"IP 與規劃不符（規劃: {', '.join(sorted(planned_ips))}，實際: {ip_only}）")
 
         if not problems:
             log.status = 'completed'

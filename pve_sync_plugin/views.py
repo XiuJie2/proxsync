@@ -514,6 +514,23 @@ def _parse_provisioning_post(post):
         except (ValueError, TypeError):
             return None
 
+    def _ip_with_prefix(ip_key, prefix_key, default_prefix=16):
+        """Combine a bare-IP field with its prefix-length field into "ip/prefix".
+
+        Left as-is if the user already typed a "/" manually. Defaults to /16
+        when the prefix field is blank/invalid.
+        """
+        ip = post.get(ip_key, "").strip()
+        if not ip or "/" in ip:
+            return ip
+        try:
+            prefix_len = int(post.get(prefix_key, "").strip())
+        except (ValueError, TypeError):
+            prefix_len = default_prefix
+        if not 1 <= prefix_len <= 32:
+            prefix_len = default_prefix
+        return f"{ip}/{prefix_len}"
+
     # Build from the known checklist keys rather than scanning POST by prefix —
     # QEMU_GA_ITEMS keys already start with "chk_", so a naive startswith("chk_")
     # scan also matched the "chk_exists_*" hidden markers and produced garbage
@@ -530,9 +547,9 @@ def _parse_provisioning_post(post):
         "cpu":           _int("cpu"),
         "ram_gb":        _int("ram_gb"),
         "disk_gb":       _int("disk_gb"),
-        "management_ip": post.get("management_ip", "").strip(),
+        "management_ip": _ip_with_prefix("management_ip", "management_prefix"),
         "management_gw": post.get("management_gateway", "").strip(),
-        "internet_ip":   post.get("internet_ip", "").strip(),
+        "internet_ip":   _ip_with_prefix("internet_ip", "internet_prefix"),
         "internet_gw":   post.get("internet_gateway", "").strip(),
         "notes":         post.get("notes", "").strip(),
         "checklist":     checklist,
