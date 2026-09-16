@@ -156,7 +156,7 @@
           <div class="mb-2">
             <label class="form-label small fw-semibold">IP 位址</label>
             <div class="input-group input-group-sm">
-              <select id="mgmt_ip_select" class="form-select" onchange="syncIpInput('mgmt'); probeIp('mgmt')" disabled>
+              <select id="mgmt_ip_select" class="form-select d-none" onchange="syncIpInput('mgmt'); probeIp('mgmt')" disabled>
                 <option value=""></option>
               </select>
               <input type="text" name="management_ip" id="mgmt_ip_input" class="form-control"
@@ -197,7 +197,7 @@
           <div class="mb-2">
             <label class="form-label small fw-semibold">IP 位址</label>
             <div class="input-group input-group-sm">
-              <select id="inet_ip_select" class="form-select" onchange="syncIpInput('inet'); probeIp('inet')" disabled>
+              <select id="inet_ip_select" class="form-select d-none" onchange="syncIpInput('inet'); probeIp('inet')" disabled>
                 <option value=""></option>
               </select>
               <input type="text" name="internet_ip" id="inet_ip_input" class="form-control"
@@ -301,9 +301,10 @@ function loadFreeIps(nic, rangeId) {
   const input  = document.getElementById(prefix + '_ip_input');
   const probe  = document.getElementById(prefix + '_probe_result');
   delete _freeIpsState[nic];
-  if (!rangeId) { select.disabled = true; select.innerHTML = '<option value=""></option>'; input.value = ''; probe.innerHTML = ''; return; }
+  if (!rangeId) { select.disabled = true; select.classList.add('d-none'); select.innerHTML = '<option value=""></option>'; input.value = ''; probe.innerHTML = ''; return; }
   probe.innerHTML = '<span class="text-muted small">載入空閒 IP 中…</span>';
   select.disabled = true;
+  select.classList.add('d-none');
   let url = FREE_IPS_URL + rangeId + '/';
   if (nic === 'inet') { const octet = getLastOctet(document.getElementById('mgmt_ip_input').value); if (octet) url += '?prefer_last_octet=' + octet; }
   fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
@@ -312,8 +313,9 @@ function loadFreeIps(nic, rangeId) {
       if (data.error) { probe.innerHTML = '<span class="text-danger small">' + data.error + '</span>'; return; }
       select.innerHTML = '<option value="">— 選擇空閒 IP —</option>';
       data.free_ips.forEach(item => { const o = document.createElement('option'); o.value = item.ip; o.textContent = item.ip; select.appendChild(o); });
-      select.disabled = false;
       if (data.free_ips.length === 0) { probe.innerHTML = '<span class="text-danger small">此 Range 無空閒 IP</span>'; return; }
+      select.disabled = false;
+      select.classList.remove('d-none');
       const chosen = data.preferred || data.free_ips[0];
       const idx = data.free_ips.findIndex(f => f.ip === chosen.ip);
       _freeIpsState[nic] = {list: data.free_ips, idx: idx >= 0 ? idx : 0};

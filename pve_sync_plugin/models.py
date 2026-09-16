@@ -504,9 +504,13 @@ class VmProvisioningLog(NetBoxModel):
     def get_absolute_url(self):
         return reverse("plugins:pve_sync_plugin:vmprovisioninglog", args=[self.pk])
 
+    def get_status_color(self):
+        """Named get_{field}_color so NetBox's ChoiceFieldColumn picks it up for table badges."""
+        return {"planning": "info", "completed": "success"}.get(self.status, "secondary")
+
     @property
     def status_badge(self):
-        return {"planning": "info", "completed": "success"}.get(self.status, "secondary")
+        return self.get_status_color()
 
     QEMU_GA_ITEMS = [
         ("chk_qemu_options", "在 VM Options 啟用 QEMU Guest Agent"),
