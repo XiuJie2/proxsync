@@ -157,10 +157,14 @@
             <label class="form-label small fw-semibold">IP 位址</label>
             <div class="input-group input-group-sm">
               <select id="mgmt_ip_select" class="form-select" onchange="syncIpInput('mgmt'); probeIp('mgmt')" disabled>
-                <option value="">— 先選擇 IP Range —</option>
+                <option value=""></option>
               </select>
               <input type="text" name="management_ip" id="mgmt_ip_input" class="form-control"
                      placeholder="或手動輸入 IP" oninput="probeIp('mgmt')">
+              <button type="button" class="btn btn-outline-secondary" onclick="nextFreeIp('mgmt')"
+                      title="此 IP 不可用？換下一個空閒 IP">
+                <i class="mdi mdi-refresh"></i>
+              </button>
             </div>
             <div id="mgmt_probe_result" class="mt-1"></div>
           </div>
@@ -194,10 +198,14 @@
             <label class="form-label small fw-semibold">IP 位址</label>
             <div class="input-group input-group-sm">
               <select id="inet_ip_select" class="form-select" onchange="syncIpInput('inet'); probeIp('inet')" disabled>
-                <option value="">— 先選擇 IP Range —</option>
+                <option value=""></option>
               </select>
               <input type="text" name="internet_ip" id="inet_ip_input" class="form-control"
                      placeholder="或手動輸入 IP" oninput="probeIp('inet')">
+              <button type="button" class="btn btn-outline-secondary" onclick="nextFreeIp('inet')"
+                      title="此 IP 不可用？換下一個空閒 IP">
+                <i class="mdi mdi-refresh"></i>
+              </button>
             </div>
             <div id="inet_probe_result" class="mt-1"></div>
           </div>
@@ -285,12 +293,15 @@ document.getElementById('cluster').addEventListener('change', function() {
 
 function getLastOctet(ip) { const m = (ip || '').match(/\.(\d+)$/); return m ? m[1] : null; }
 
+const _freeIpsState = {};   // nic -> {list: [{ip,cidr}, ...], idx: number}
+
 function loadFreeIps(nic, rangeId) {
   const prefix = nic === 'mgmt' ? 'mgmt' : 'inet';
   const select = document.getElementById(prefix + '_ip_select');
   const input  = document.getElementById(prefix + '_ip_input');
   const probe  = document.getElementById(prefix + '_probe_result');
-  if (!rangeId) { select.disabled = true; select.innerHTML = '<option value="">— 先選擇 IP Range —</option>'; input.value = ''; probe.innerHTML = ''; return; }
+  delete _freeIpsState[nic];
+  if (!rangeId) { select.disabled = true; select.innerHTML = '<option value=""></option>'; input.value = ''; probe.innerHTML = ''; return; }
   probe.innerHTML = '<span class="text-muted small">載入空閒 IP 中…</span>';
   select.disabled = true;
   let url = FREE_IPS_URL + rangeId + '/';
@@ -304,6 +315,8 @@ function loadFreeIps(nic, rangeId) {
       select.disabled = false;
       if (data.free_ips.length === 0) { probe.innerHTML = '<span class="text-danger small">此 Range 無空閒 IP</span>'; return; }
       const chosen = data.preferred || data.free_ips[0];
+      const idx = data.free_ips.findIndex(f => f.ip === chosen.ip);
+      _freeIpsState[nic] = {list: data.free_ips, idx: idx >= 0 ? idx : 0};
       select.value = chosen.ip; input.value = chosen.ip; probeIp(nic);
       if (data.preferred) {
         const octet = getLastOctet(document.getElementById('mgmt_ip_input').value);
@@ -318,7 +331,31 @@ function loadFreeIps(nic, rangeId) {
     .catch(e => { probe.innerHTML = '<span class="text-danger small">請求失敗：' + e + '</span>'; });
 }
 
-function syncIpInput(nic) { const sel = document.getElementById(nic + '_ip_select'); const inp = document.getElementById(nic + '_ip_input'); if (sel.value) inp.value = sel.value; }
+function nextFreeIp(nic) {
+  const state = _freeIpsState[nic];
+  const probe = document.getElementById(nic + '_probe_result');
+  if (!state || !state.list.length) {
+    probe.innerHTML = '<span class="text-muted small">請先選擇 IP Range</span>';
+    return;
+  }
+  state.idx = (state.idx + 1) % state.list.length;
+  const item = state.list[state.idx];
+  document.getElementById(nic + '_ip_select').value = item.ip;
+  document.getElementById(nic + '_ip_input').value = item.ip;
+  probeIp(nic);
+}
+
+function syncIpInput(nic) {
+  const sel = document.getElementById(nic + '_ip_select');
+  const inp = document.getElementById(nic + '_ip_input');
+  if (!sel.value) return;
+  inp.value = sel.value;
+  const state = _freeIpsState[nic];
+  if (state) {
+    const idx = state.list.findIndex(f => f.ip === sel.value);
+    if (idx >= 0) state.idx = idx;
+  }
+}
 
 document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('mgmt_ip_input').addEventListener('change', function() {

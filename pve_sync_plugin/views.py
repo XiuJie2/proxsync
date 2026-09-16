@@ -702,9 +702,7 @@ class VmPlannerFreeVmidApi(PermissionRequiredMixin, View):
             except (TypeError, ValueError):
                 continue
 
-        log_qs = VmProvisioningLog.objects.filter(
-            status__in=["planning", "in_progress"], vmid__isnull=False
-        )
+        log_qs = VmProvisioningLog.objects.filter(status="planning", vmid__isnull=False)
         if cluster_name:
             log_qs = log_qs.filter(cluster_name=cluster_name)
         used.update(log_qs.values_list("vmid", flat=True))
