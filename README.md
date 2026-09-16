@@ -63,6 +63,7 @@
 - 配置漂移偵測：自動發現 VM 的 CPU / 記憶體設定變更
 - 節點放置檢查：VM 描述 (Notes) 內若標記 `node: <預期節點>`，當實際所在節點與標記不符時透過 Telegram 提醒
 - Guest Agent 異常提醒：VM 執行中卻取不到 IP（QEMU Guest Agent 未啟用或未安裝）時透過 Telegram 提醒
+- VM 佈建規劃驗證：每次同步自動比對「VM 佈建」規劃中的記錄——VM 是否已建立、QEMU Guest Agent 是否配置好、IP 是否可取得且與規劃一致，全部通過即自動標記規劃記錄為完成，否則持續提醒
 - 增量同步：透過 SQLite state_db 追蹤變更，避免全量更新
 
 ### 多叢集支援

@@ -90,12 +90,9 @@
             <label class="form-label fw-semibold">作業系統</label>
             <select name="os_type" class="form-select">
               <option value="">— 選擇 OS —</option>
-              <option>Ubuntu 22.04 LTS</option>
-              <option>Ubuntu 24.04 LTS</option>
-              <option>Debian 12</option>
-              <option>Rocky Linux 9</option>
-              <option>AlmaLinux 9</option>
-              <option>Windows Server 2022</option>
+              {% for opt in os_type_choices %}
+                <option>{{ opt }}</option>
+              {% endfor %}
             </select>
           </div>
         </div>
@@ -225,7 +222,6 @@
       {% for key, label in qemu_ga_items %}
       <div class="col-md-4">
         <div class="form-check">
-          <input type="hidden" name="chk_exists_{{ key }}" value="1">
           <input class="form-check-input" type="checkbox" name="{{ key }}" id="{{ key }}" value="on">
           <label class="form-check-label" for="{{ key }}">{{ label }}</label>
         </div>

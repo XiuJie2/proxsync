@@ -14,6 +14,9 @@
   </a>
 </div>
 
+<form method="post">
+{% csrf_token %}
+
 <div class="row g-4">
 
   {# ── 左欄：VM 資訊 + IP ── #}
@@ -21,45 +24,116 @@
 
     <div class="card mb-3">
       <h5 class="card-header"><i class="mdi mdi-server"></i> VM 資訊</h5>
-      <table class="table table-hover attr-table mb-0">
-        <tr><th>VM 名稱</th><td><strong>{{ object.vm_name }}</strong></td></tr>
-        <tr><th>VMID</th><td>{{ object.vmid|default:"—" }}</td></tr>
-        <tr><th>叢集</th><td>{{ object.cluster_name|default:"—" }}</td></tr>
-        <tr><th>節點</th><td>{{ object.node|default:"—" }}</td></tr>
-        <tr><th>作業系統</th><td>{{ object.os_type|default:"—" }}</td></tr>
-        <tr><th>規格</th>
-          <td>
-            {% if object.cpu %}{{ object.cpu }} vCPU{% endif %}
-            {% if object.ram_gb %} / {{ object.ram_gb }} GB RAM{% endif %}
-            {% if object.disk_gb %} / {{ object.disk_gb }} GB{% endif %}
-            {% if not object.cpu and not object.ram_gb and not object.disk_gb %}—{% endif %}
-          </td>
-        </tr>
-        <tr><th>建立時間</th><td>{{ object.created|date:"Y-m-d H:i" }}</td></tr>
-        <tr><th>創建人</th><td>{{ object.created_by|default:"—" }}</td></tr>
-      </table>
+      <div class="card-body">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">VM 名稱 <span class="text-danger">*</span></label>
+          <input type="text" name="vm_name" class="form-control" value="{{ object.vm_name }}" required>
+        </div>
+
+        <div class="row g-2 mb-3">
+          <div class="col-7">
+            <label class="form-label fw-semibold small">PVE 叢集</label>
+            <select name="cluster" class="form-select">
+              <option value="">— 選擇叢集 —</option>
+              {% for c in clusters %}
+                <option value="{{ c.name }}" {% if object.cluster_name == c.name %}selected{% endif %}>{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-5">
+            <label class="form-label fw-semibold small">節點</label>
+            <select name="node" class="form-select">
+              <option value="">— 選擇節點 —</option>
+              {% for c in clusters %}
+                {% with nodes=cluster_nodes|get_item:c.name %}
+                  {% if nodes %}
+                    <optgroup label="{{ c.name }}">
+                      {% for node in nodes %}
+                        <option value="{{ node }}" {% if object.node == node %}selected{% endif %}>{{ node }}</option>
+                      {% endfor %}
+                    </optgroup>
+                  {% endif %}
+                {% endwith %}
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="row g-2 mb-3">
+          <div class="col-5">
+            <label class="form-label fw-semibold small">VMID</label>
+            <input type="number" name="vmid" class="form-control" value="{{ object.vmid|default_if_none:'' }}"
+                   min="100" max="999999999">
+          </div>
+          <div class="col-7">
+            <label class="form-label fw-semibold small">作業系統</label>
+            <select name="os_type" class="form-select">
+              <option value="">— 選擇 OS —</option>
+              {% if object.os_type and object.os_type not in os_type_choices %}
+                <option selected>{{ object.os_type }}</option>
+              {% endif %}
+              {% for opt in os_type_choices %}
+                <option {% if object.os_type == opt %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="row g-2 mb-0">
+          <div class="col">
+            <label class="form-label fw-semibold small">CPU</label>
+            <div class="input-group">
+              <input type="number" name="cpu" class="form-control" value="{{ object.cpu|default_if_none:'' }}" min="1">
+              <span class="input-group-text">vCPU</span>
+            </div>
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold small">記憶體</label>
+            <div class="input-group">
+              <input type="number" name="ram_gb" class="form-control" value="{{ object.ram_gb|default_if_none:'' }}" min="1">
+              <span class="input-group-text">GB</span>
+            </div>
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold small">磁碟</label>
+            <div class="input-group">
+              <input type="number" name="disk_gb" class="form-control" value="{{ object.disk_gb|default_if_none:'' }}" min="1">
+              <span class="input-group-text">GB</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="card-footer py-2 text-muted small">
+        建立時間 {{ object.created|date:"Y-m-d H:i" }}・創建人 {{ object.created_by|default:"—" }}
+      </div>
     </div>
 
     <div class="card mb-3">
       <h5 class="card-header"><i class="mdi mdi-ip-network"></i> IP 配置</h5>
-      <table class="table table-hover attr-table mb-0">
-        <tr>
-          <th><span class="badge bg-primary">NIC 1</span> Management</th>
-          <td>
-            {% if object.management_ip %}<code>{{ object.management_ip }}</code>
-              {% if object.management_gw %}<span class="text-muted ms-2 small">GW {{ object.management_gw }}</span>{% endif %}
-            {% else %}<span class="text-muted">—</span>{% endif %}
-          </td>
-        </tr>
-        <tr>
-          <th><span class="badge bg-success">NIC 2</span> Internet</th>
-          <td>
-            {% if object.internet_ip %}<code>{{ object.internet_ip }}</code>
-              {% if object.internet_gw %}<span class="text-muted ms-2 small">GW {{ object.internet_gw }}</span>{% endif %}
-            {% else %}<span class="text-muted">—</span>{% endif %}
-          </td>
-        </tr>
-      </table>
+      <div class="card-body">
+        <div class="row g-2 mb-3">
+          <div class="col-7">
+            <label class="form-label fw-semibold small"><span class="badge bg-primary">NIC 1</span> Management IP</label>
+            <input type="text" name="management_ip" class="form-control" value="{{ object.management_ip }}">
+          </div>
+          <div class="col-5">
+            <label class="form-label fw-semibold small">閘道</label>
+            <input type="text" name="management_gateway" class="form-control" value="{{ object.management_gw }}">
+          </div>
+        </div>
+        <div class="row g-2 mb-0">
+          <div class="col-7">
+            <label class="form-label fw-semibold small"><span class="badge bg-success">NIC 2</span> Internet IP</label>
+            <input type="text" name="internet_ip" class="form-control" value="{{ object.internet_ip }}">
+          </div>
+          <div class="col-5">
+            <label class="form-label fw-semibold small">閘道</label>
+            <input type="text" name="internet_gateway" class="form-control" value="{{ object.internet_gw }}">
+          </div>
+        </div>
+      </div>
       <div class="card-footer py-2 text-muted small">
         <i class="mdi mdi-information-outline"></i> IP 將於 PVE 同步後自動寫入 IPAM
       </div>
@@ -73,43 +147,38 @@
     <div class="card mb-3">
       <h5 class="card-header"><i class="mdi mdi-chip"></i> QEMU Guest Agent</h5>
       <div class="card-body pb-2">
-        {% for key, label in object.QEMU_GA_ITEMS %}
-        <div class="d-flex align-items-center gap-2 mb-2">
-          {% if object.checklist|get_item:key %}
-            <i class="mdi mdi-check-circle text-success fs-5"></i>
-          {% else %}
-            <i class="mdi mdi-circle-outline text-secondary fs-5"></i>
-          {% endif %}
-          <span class="{% if object.checklist|get_item:key %}text-success{% else %}text-muted{% endif %}">{{ label }}</span>
+        {% for key, label in qemu_ga_items %}
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" name="{{ key }}" id="{{ key }}" value="on"
+                 {% if object.checklist|get_item:key %}checked{% endif %}>
+          <label class="form-check-label" for="{{ key }}">{{ label }}</label>
         </div>
         {% endfor %}
       </div>
     </div>
 
-    <form method="post">
-      {% csrf_token %}
-      <div class="card">
-        <h5 class="card-header"><i class="mdi mdi-flag"></i> 狀態 / 備註</h5>
-        <div class="card-body">
-          <label class="form-label fw-semibold small">部署狀態</label>
-          <select name="status" class="form-select mb-3">
-            {% for val, lbl in object.STATUS_CHOICES %}
-              <option value="{{ val }}" {% if object.status == val %}selected{% endif %}>{{ lbl }}</option>
-            {% endfor %}
-          </select>
-          <label class="form-label fw-semibold small">備註</label>
-          <textarea name="notes" class="form-control" rows="4">{{ object.notes }}</textarea>
-        </div>
-        <div class="card-footer">
-          <button type="submit" class="btn btn-primary btn-sm">
-            <i class="mdi mdi-content-save"></i> 儲存狀態 / 備註
-          </button>
-        </div>
+    <div class="card">
+      <h5 class="card-header"><i class="mdi mdi-flag"></i> 狀態 / 備註</h5>
+      <div class="card-body">
+        <label class="form-label fw-semibold small">部署狀態</label>
+        <select name="status" class="form-select mb-3">
+          {% for val, lbl in object.STATUS_CHOICES %}
+            <option value="{{ val }}" {% if object.status == val %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+        <label class="form-label fw-semibold small">備註</label>
+        <textarea name="notes" class="form-control" rows="4">{{ object.notes }}</textarea>
       </div>
-    </form>
+      <div class="card-footer">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="mdi mdi-content-save"></i> 儲存變更
+        </button>
+      </div>
+    </div>
 
   </div>
 
 </div>{# /row #}
+</form>
 
 {% endblock %}

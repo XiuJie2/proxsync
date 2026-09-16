@@ -471,9 +471,8 @@ class VmProvisioningLog(NetBoxModel):
     """Planning record created in the VM Provisioning Planner before PVE sync."""
 
     STATUS_CHOICES = [
-        ("planning",     "規劃中"),
-        ("in_progress",  "部署中"),
-        ("completed",    "完成"),
+        ("planning",  "規劃中"),
+        ("completed", "完成"),
     ]
 
     vm_name          = models.CharField(max_length=100, verbose_name="VM 名稱")
@@ -507,14 +506,21 @@ class VmProvisioningLog(NetBoxModel):
 
     @property
     def status_badge(self):
-        return {"planning": "info", "in_progress": "warning", "completed": "success"}.get(
-            self.status, "secondary"
-        )
+        return {"planning": "info", "completed": "success"}.get(self.status, "secondary")
 
     QEMU_GA_ITEMS = [
         ("chk_qemu_options", "在 VM Options 啟用 QEMU Guest Agent"),
         ("chk_qemu_install", "安裝 qemu-guest-agent 套件"),
         ("chk_qemu_enable",  "啟用並啟動 qemu-guest-agent 服務"),
+    ]
+
+    OS_TYPE_CHOICES = [
+        "Ubuntu 22.04 LTS",
+        "Ubuntu 24.04 LTS",
+        "Debian 12",
+        "Rocky Linux 9",
+        "AlmaLinux 9",
+        "Windows Server 2022",
     ]
 
 

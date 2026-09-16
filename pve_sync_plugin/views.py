@@ -489,6 +489,56 @@ class TriggerVmSyncView(PermissionRequiredMixin, View):
 # VM Provisioning
 # ============================================================================
 
+def _cluster_ctx():
+    """Return (clusters, cluster_nodes) shared by the create and edit provisioning forms."""
+    from dcim.models import Device
+    clusters = list(PveClusterConfig.objects.order_by("name"))
+    cluster_nodes = {}
+    for c in clusters:
+        if c.netbox_cluster_id:
+            nodes = list(
+                Device.objects
+                .filter(cluster_id=c.netbox_cluster_id)
+                .order_by("name")
+                .values_list("name", flat=True)
+            )
+            cluster_nodes[c.name] = nodes
+    return clusters, cluster_nodes
+
+
+def _parse_provisioning_post(post):
+    """Parse the fields shared by the create and edit provisioning forms out of a POST dict."""
+    def _int(key):
+        try:
+            return int(post.get(key, "").strip()) or None
+        except (ValueError, TypeError):
+            return None
+
+    # Build from the known checklist keys rather than scanning POST by prefix —
+    # QEMU_GA_ITEMS keys already start with "chk_", so a naive startswith("chk_")
+    # scan also matched the "chk_exists_*" hidden markers and produced garbage
+    # double-prefixed entries. An unchecked box simply won't appear in POST,
+    # so absence already means False; no hidden marker needed.
+    checklist = {key: post.get(key) == "on" for key, _label in VmProvisioningLog.QEMU_GA_ITEMS}
+
+    return {
+        "vm_name":       post.get("vm_name", "").strip(),
+        "vmid":          _int("vmid"),
+        "cluster_name":  post.get("cluster", "").strip(),
+        "node":          post.get("node", "").strip(),
+        "os_type":       post.get("os_type", "").strip(),
+        "cpu":           _int("cpu"),
+        "ram_gb":        _int("ram_gb"),
+        "disk_gb":       _int("disk_gb"),
+        "management_ip": post.get("management_ip", "").strip(),
+        "management_gw": post.get("management_gateway", "").strip(),
+        "internet_ip":   post.get("internet_ip", "").strip(),
+        "internet_gw":   post.get("internet_gateway", "").strip(),
+        "notes":         post.get("notes", "").strip(),
+        "checklist":     checklist,
+    }
+
+
 class VmProvisioningCombinedView(PermissionRequiredMixin, View):
     """Combined VM provisioning planner + logs list on one page."""
 
@@ -496,23 +546,13 @@ class VmProvisioningCombinedView(PermissionRequiredMixin, View):
 
     def _form_ctx(self):
         from ipam.models import IPRange
-        from dcim.models import Device
-        clusters = list(PveClusterConfig.objects.order_by("name"))
-        cluster_nodes = {}
-        for c in clusters:
-            if c.netbox_cluster_id:
-                nodes = list(
-                    Device.objects
-                    .filter(cluster_id=c.netbox_cluster_id)
-                    .order_by("name")
-                    .values_list("name", flat=True)
-                )
-                cluster_nodes[c.name] = nodes
+        clusters, cluster_nodes = _cluster_ctx()
         return {
-            "clusters":      clusters,
-            "cluster_nodes": cluster_nodes,
-            "ip_ranges":     IPRange.objects.order_by("start_address"),
-            "qemu_ga_items": VmProvisioningLog.QEMU_GA_ITEMS,
+            "clusters":         clusters,
+            "cluster_nodes":    cluster_nodes,
+            "ip_ranges":        IPRange.objects.order_by("start_address"),
+            "qemu_ga_items":    VmProvisioningLog.QEMU_GA_ITEMS,
+            "os_type_choices":  VmProvisioningLog.OS_TYPE_CHOICES,
         }
 
     def _table_ctx(self, request):
@@ -529,41 +569,14 @@ class VmProvisioningCombinedView(PermissionRequiredMixin, View):
         return render(request, "pve_sync/vm_provisioning_combined.html", ctx)
 
     def post(self, request):
-        def _int(key):
-            try:
-                return int(request.POST.get(key, "").strip()) or None
-            except (ValueError, TypeError):
-                return None
-
-        checklist = {}
-        for key, val in request.POST.items():
-            if key.startswith("chk_"):
-                checklist[key] = (val == "on")
-        for key, val in request.POST.items():
-            if key.startswith("chk_exists_") and key.replace("chk_exists_", "chk_") not in checklist:
-                checklist[key.replace("chk_exists_", "chk_")] = False
-
-        vm_name = request.POST.get("vm_name", "").strip()
-        if not vm_name:
+        fields = _parse_provisioning_post(request.POST)
+        if not fields["vm_name"]:
             messages.error(request, "VM 名稱不能為空。")
             return self.get(request, expand_form=True)
 
         log = VmProvisioningLog.objects.create(
-            vm_name       = vm_name,
-            vmid          = _int("vmid"),
-            cluster_name  = request.POST.get("cluster", "").strip(),
-            node          = request.POST.get("node", "").strip(),
-            os_type       = request.POST.get("os_type", "").strip(),
-            cpu           = _int("cpu"),
-            ram_gb        = _int("ram_gb"),
-            disk_gb       = _int("disk_gb"),
-            management_ip = request.POST.get("management_ip", "").strip(),
-            management_gw = request.POST.get("management_gateway", "").strip(),
-            internet_ip   = request.POST.get("internet_ip", "").strip(),
-            internet_gw   = request.POST.get("internet_gateway", "").strip(),
-            notes         = request.POST.get("notes", "").strip(),
-            checklist     = checklist,
-            created_by    = request.user.get_username(),
+            created_by=request.user.get_username(),
+            **fields,
         )
         messages.success(request, f"規劃記錄 #{log.pk}「{log.vm_name}」已儲存。")
         return redirect(log.get_absolute_url())
@@ -574,19 +587,31 @@ class VmProvisioningLogView(PermissionRequiredMixin, View):
 
     def get(self, request, pk):
         log = get_object_or_404(VmProvisioningLog, pk=pk)
+        clusters, cluster_nodes = _cluster_ctx()
         return render(request, "pve_sync/vm_provisioning_log.html", {
-            "object": log,
+            "object":           log,
+            "clusters":         clusters,
+            "cluster_nodes":    cluster_nodes,
+            "qemu_ga_items":    VmProvisioningLog.QEMU_GA_ITEMS,
+            "os_type_choices":  VmProvisioningLog.OS_TYPE_CHOICES,
         })
 
     def post(self, request, pk):
-        """Update status and notes (checklist is updated via separate AJAX endpoint)."""
         log = get_object_or_404(VmProvisioningLog, pk=pk)
+        fields = _parse_provisioning_post(request.POST)
+        if not fields["vm_name"]:
+            messages.error(request, "VM 名稱不能為空。")
+            return redirect(log.get_absolute_url())
+
+        for key, value in fields.items():
+            setattr(log, key, value)
+
         new_status = request.POST.get("status")
         if new_status in dict(VmProvisioningLog.STATUS_CHOICES):
             log.status = new_status
-        log.notes = request.POST.get("notes", log.notes)
+
         log.save()
-        messages.success(request, "狀態 / 備註已更新。")
+        messages.success(request, "規劃記錄已更新。")
         return redirect(log.get_absolute_url())
 
 

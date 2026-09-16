@@ -1762,6 +1762,71 @@ class OptimizedPVEToNetBoxSync:
         self.send_telegram_notification(msg)
         self._write_drift_event(vm_name, int(vm_id), 'agent_ip_missing', 'primary_ip', '', '', notified=True)
 
+    def check_provisioning_plan(self, vm_id: str, vm_name: str, vm_type: str,
+                                qemu_agent_enabled: bool, ip_str: str):
+        """驗證此 VM 是否符合「VM 佈建」規劃頁上尚在「規劃中」的記錄。
+
+        檢查項目：VM 已建立（能跑到這裡就代表已建立）、QEMU Guest Agent 是否
+        配置好、IP 是否能取得、IP 是否與規劃的 Management/Internet IP 一致。
+        全部通過才自動將規劃記錄標記為「完成」；未通過則維持「規劃中」並
+        每次同步持續提醒，直到問題解決或使用者手動調整規劃記錄為止。
+        僅在 NetBox（Django）環境下執行，standalone 執行時靜默跳過。
+        """
+        try:
+            from pve_sync_plugin.models import VmProvisioningLog
+        except Exception:
+            return
+        try:
+            vmid_int = int(vm_id)
+        except (TypeError, ValueError):
+            return
+        try:
+            log = VmProvisioningLog.objects.filter(
+                status='planning', vmid=vmid_int, cluster_name=self.cluster_name
+            ).first()
+        except Exception as e:
+            print(f"  ⚠ 無法查詢佈建規劃記錄: {e}")
+            return
+        if not log:
+            return
+
+        problems = []
+        if vm_type == 'qemu' and not qemu_agent_enabled:
+            problems.append('QEMU Guest Agent 尚未啟用')
+        if not ip_str:
+            problems.append('尚未取得 IP')
+        else:
+            planned_ips = {ip.strip() for ip in (log.management_ip, log.internet_ip) if ip and ip.strip()}
+            if planned_ips and ip_str not in planned_ips:
+                problems.append(f"IP 與規劃不符（規劃: {', '.join(sorted(planned_ips))}，實際: {ip_str}）")
+
+        if not problems:
+            log.status = 'completed'
+            log.save(update_fields=['status'])
+            print(f"✅ VM {vm_name} 已符合佈建規劃，規劃記錄 #{log.pk} 自動標記為完成")
+            msg = (
+                f"✅ <b>VM 佈建規劃驗證通過</b>\n\n"
+                f"🖥️ 名稱: <b>{vm_name}</b> (VMID: {vm_id})\n"
+                f"🔀 叢集: {self.cluster_name}\n"
+                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"🌐 IP: <code>{ip_str}</code>\n"
+                f"📋 規劃記錄 #{log.pk} 已自動標記為「完成」"
+            )
+            self.send_telegram_notification(msg)
+            self._write_drift_event(vm_name, vmid_int, 'provisioning_completed', 'status',
+                                    'planning', 'completed', notified=True)
+        else:
+            print(f"⚠️ VM {vm_name} 尚未符合佈建規劃: {'; '.join(problems)}")
+            msg = (
+                f"⚠️ <b>VM 佈建規劃驗證未通過</b>\n\n"
+                f"🖥️ 名稱: <b>{vm_name}</b> (VMID: {vm_id})\n"
+                f"🔀 叢集: {self.cluster_name}\n"
+                f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                + "\n".join(f"❌ {p}" for p in problems) +
+                f"\n\n📋 規劃記錄 #{log.pk}（狀態維持「規劃中」）"
+            )
+            self.send_telegram_notification(msg)
+
     # ---------- 虛擬機處理主邏輯 ----------
     def process_virtual_machine(self, vm_data: Dict, device, cluster: Dict, force: bool = False) -> bool:
         vm_id = str(vm_data['vmid'])
@@ -1970,6 +2035,7 @@ class OptimizedPVEToNetBoxSync:
                         or getattr(getattr(cached_vm, 'primary_ip4', None), 'address', None) or ''
                     self.check_agent_ip_missing(vm_id, original_vm_name, vm_type, is_template,
                                                 vm_status, qemu_agent_enabled, cur_ip)
+                    self.check_provisioning_plan(vm_id, original_vm_name, vm_type, qemu_agent_enabled, cur_ip)
                     if self.state_db:
                         try:
                             config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
@@ -2085,6 +2151,7 @@ class OptimizedPVEToNetBoxSync:
                 self.detect_ip_change(int(vm_id), original_vm_name, primary_ip_str)
             self.check_agent_ip_missing(vm_id, original_vm_name, vm_type, is_template,
                                         vm_status, qemu_agent_enabled, primary_ip_str)
+            self.check_provisioning_plan(vm_id, original_vm_name, vm_type, qemu_agent_enabled, primary_ip_str)
             print(f"  標籤: {len(tag_ids)}個, 介面: {interface_count}個, 磁碟: {disk_count}個, 大小: {disk_size}MB")
             if self.enhanced_mode and self.state_db:
                 config_hash = compute_config_hash(vm_config, tag_names, network_interfaces)
