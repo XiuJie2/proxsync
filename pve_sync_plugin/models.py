@@ -492,6 +492,7 @@ class VmProvisioningLog(NetBoxModel):
                                         choices=STATUS_CHOICES, verbose_name="狀態")
     notes            = models.TextField(blank=True, verbose_name="備註")
     checklist        = models.JSONField(default=dict, blank=True, verbose_name="清單狀態")
+    created_by       = models.CharField(max_length=150, blank=True, verbose_name="創建人")
 
     class Meta:
         ordering = ["-created"]

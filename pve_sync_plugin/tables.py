@@ -292,14 +292,15 @@ class VmProvisioningLogTable(NetBoxTable):
     status        = columns.ChoiceFieldColumn(verbose_name="狀態")
     management_ip = tables.Column(verbose_name="Management IP")
     internet_ip   = tables.Column(verbose_name="Internet IP")
+    created_by    = tables.Column(verbose_name="創建人")
     actions       = columns.ActionsColumn(actions=("delete",))
 
     class Meta(NetBoxTable.Meta):
         model = VmProvisioningLog
         fields = ("pk", "vm_name", "vmid", "cluster_name", "node", "status",
-                  "management_ip", "internet_ip", "created")
+                  "management_ip", "internet_ip", "created_by", "created")
         default_columns = ("vm_name", "vmid", "cluster_name", "node", "status",
-                           "management_ip", "internet_ip")
+                           "management_ip", "internet_ip", "created_by")
 
 
 # ---------------------------------------------------------------------------

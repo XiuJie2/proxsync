@@ -563,6 +563,7 @@ class VmProvisioningCombinedView(PermissionRequiredMixin, View):
             internet_gw   = request.POST.get("internet_gateway", "").strip(),
             notes         = request.POST.get("notes", "").strip(),
             checklist     = checklist,
+            created_by    = request.user.get_username(),
         )
         messages.success(request, f"規劃記錄 #{log.pk}「{log.vm_name}」已儲存。")
         return redirect(log.get_absolute_url())

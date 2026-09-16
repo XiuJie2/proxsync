@@ -36,6 +36,7 @@
           </td>
         </tr>
         <tr><th>建立時間</th><td>{{ object.created|date:"Y-m-d H:i" }}</td></tr>
+        <tr><th>創建人</th><td>{{ object.created_by|default:"—" }}</td></tr>
       </table>
     </div>
 
