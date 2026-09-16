@@ -645,6 +645,51 @@ class VmPlannerFreeIpsApi(PermissionRequiredMixin, View):
         })
 
 
+class VmPlannerFreeVmidApi(PermissionRequiredMixin, View):
+    """AJAX — 回傳目前尚未使用的最小 VMID。
+
+    PVE 上的 VM 都已同步進 NetBox（VirtualMachine.serial 存放 vmid），
+    所以直接查 NetBox 現有 VM 的 vmid，再排除還在規劃/部署中、尚未同步
+    進 NetBox 的 VmProvisioningLog vmid，取兩者聯集之外最小的可用值。
+    """
+
+    permission_required = "pve_sync_plugin.view_pveclusterconfig"
+
+    def get(self, request):
+        cluster_name = request.GET.get("cluster", "").strip()
+        try:
+            start = int(request.GET.get("start", "100"))
+        except (TypeError, ValueError):
+            start = 100
+        start = max(start, 100)
+
+        vm_qs = VirtualMachine.objects.exclude(serial="")
+        if cluster_name:
+            cfg = PveClusterConfig.objects.filter(name=cluster_name).first()
+            if cfg and cfg.netbox_cluster_id:
+                vm_qs = vm_qs.filter(cluster_id=cfg.netbox_cluster_id)
+
+        used = set()
+        for serial in vm_qs.values_list("serial", flat=True):
+            try:
+                used.add(int(serial))
+            except (TypeError, ValueError):
+                continue
+
+        log_qs = VmProvisioningLog.objects.filter(
+            status__in=["planning", "in_progress"], vmid__isnull=False
+        )
+        if cluster_name:
+            log_qs = log_qs.filter(cluster_name=cluster_name)
+        used.update(log_qs.values_list("vmid", flat=True))
+
+        vmid = start
+        while vmid in used:
+            vmid += 1
+
+        return JsonResponse({"vmid": vmid})
+
+
 class VmPlannerCheckIpApi(PermissionRequiredMixin, View):
     """AJAX — check IP availability: IPAM first, then ARP/ping network probe."""
 

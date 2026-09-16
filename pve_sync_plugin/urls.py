@@ -191,6 +191,7 @@ urlpatterns = [
     # IP probe APIs (used by provisioning form)
     path("provisioning/free-ips/<int:range_id>/", views.VmPlannerFreeIpsApi.as_view(), name="vm-planner-free-ips"),
     path("provisioning/check-ip/", views.VmPlannerCheckIpApi.as_view(), name="vm-planner-check-ip"),
+    path("provisioning/free-vmid/", views.VmPlannerFreeVmidApi.as_view(), name="vm-planner-free-vmid"),
 
     # VM Provisioning — combined planner + list
     path("provisioning/", views.VmProvisioningCombinedView.as_view(), name="vmprovisioninglog_list"),

@@ -76,8 +76,15 @@
         <div class="row g-2 mb-3">
           <div class="col-5">
             <label class="form-label fw-semibold">VMID</label>
-            <input type="number" name="vmid" id="vmid" class="form-control"
-                   placeholder="例如：200" min="100" max="999999999">
+            <div class="input-group">
+              <input type="number" name="vmid" id="vmid" class="form-control"
+                     placeholder="例如：200" min="100" max="999999999">
+              <button type="button" class="btn btn-outline-secondary" id="vmid_free_btn"
+                      title="取得目前尚未使用的 VMID（依 NetBox 已同步的 PVE VM 資料判斷）">
+                <i class="mdi mdi-refresh"></i>
+              </button>
+            </div>
+            <div id="vmid_hint" class="form-text"></div>
           </div>
           <div class="col-7">
             <label class="form-label fw-semibold">作業系統</label>
@@ -257,6 +264,28 @@ panel.addEventListener('hidden.bs.collapse', () => tableCard.style.display = '')
 
 const FREE_IPS_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-free-ips' 0 %}".replace('/0/', '/');
 const CHECK_IP_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-check-ip' %}";
+const FREE_VMID_URL = "{% url 'plugins:pve_sync_plugin:vm-planner-free-vmid' %}";
+
+function loadFreeVmid() {
+  const vmidInput = document.getElementById('vmid');
+  const hint = document.getElementById('vmid_hint');
+  const cluster = document.getElementById('cluster').value;
+  hint.innerHTML = '<span class="text-muted">查詢中…</span>';
+  let url = FREE_VMID_URL;
+  if (cluster) url += '?cluster=' + encodeURIComponent(cluster);
+  fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { hint.innerHTML = '<span class="text-danger">' + data.error + '</span>'; return; }
+      vmidInput.value = data.vmid;
+      hint.innerHTML = '<span class="text-success"><i class="mdi mdi-check-circle"></i> 已自動帶入可用 VMID</span>';
+    })
+    .catch(e => { hint.innerHTML = '<span class="text-danger">查詢失敗：' + e + '</span>'; });
+}
+document.getElementById('vmid_free_btn').addEventListener('click', loadFreeVmid);
+document.getElementById('cluster').addEventListener('change', function() {
+  if (!document.getElementById('vmid').value) loadFreeVmid();
+});
 
 function getLastOctet(ip) { const m = (ip || '').match(/\.(\d+)$/); return m ? m[1] : null; }
 
