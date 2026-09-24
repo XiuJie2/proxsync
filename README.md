@@ -116,6 +116,7 @@
 | Proxmox VE | 6.0+ |
 | Proxmox Backup Server | 2.x（可選） |
 | Redis | 任意版本（NetBox RQ Worker 需要） |
+| arping | 可選；VM 佈建頁的 IP 空閒偵測需要，見下方 FAQ |
 
 ---
 
@@ -439,6 +440,18 @@ PBS 備份記錄需透過 `pve_vmid` custom field 與 NetBox VM 比對。若 VM 
 mkdir -p /var/lib/netbox
 chown netbox:netbox /var/lib/netbox
 ```
+
+**Q：VM 佈建頁的 IP 探測一直顯示「Ping 無回應」，但該 IP 明明已經被使用**
+
+IP 探測順序為 NetBox IPAM → ARP → Ping → 常見 TCP Port，前提是這台伺服器本身要能觸及目標網段：
+
+1. 確認此伺服器的網卡有加到目標網段（`ip a`），否則探測是走路由跨網段，ARP 完全用不上，且許多主機（尤其 Windows 預設防火牆）不回應跨網段的 ICMP，會被誤判為空閒。
+2. 確認已安裝 `arping`（`apt install iputils-arping` 或對應套件），並授予 `CAP_NET_RAW`，因為 `netbox`/`netbox-rq` 服務是以非 root 使用者執行，`arping` 預設需要 root 才能送出原始封包：
+   ```bash
+   sudo setcap cap_net_raw+ep $(which arping)
+   ```
+   套件升級後 capability 可能被重置，需要重新執行上述指令。
+3. 即使以上都設定好，若目標主機連 TCP 也完全擋，仍可能誤判為空閒——最準確的做法還是把該網段實際已分配的 IP 匯入 NetBox IPAM。
 
 ---
 

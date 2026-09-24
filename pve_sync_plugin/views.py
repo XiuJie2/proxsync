@@ -821,6 +821,36 @@ class VmPlannerCheckIpApi(PermissionRequiredMixin, View):
                 source = "none"
                 detail = "IPAM 未分配，無法探測網路"
 
+        # ── 4. TCP probe — last resort when ARP/ping saw nothing ──
+        # Ping/ARP alone regularly miss real hosts: many Windows machines
+        # drop ICMP by default firewall policy, and when this server isn't
+        # on the target's local L2 segment (routed to it instead), ARP can't
+        # apply at all. A TCP SYN to a common port still gets an immediate
+        # RST (or an accept) from a live host even with ICMP blocked, so try
+        # a short list of ports before concluding the IP is really free.
+        if status == "free":
+            import socket
+            import errno
+            for port in (445, 139, 3389, 22, 80, 443, 8006):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.3)
+                try:
+                    rc = sock.connect_ex((ip_str, port))
+                except OSError:
+                    rc = -1
+                finally:
+                    sock.close()
+                if rc == 0:
+                    status, source = "in_use", "tcp"
+                    detail = f"TCP port {port} 可連線（未記錄於 IPAM，ICMP 可能被防火牆阻擋）"
+                    break
+                if rc == errno.ECONNREFUSED:
+                    status, source = "in_use", "tcp"
+                    detail = f"TCP port {port} 拒絕連線但主機存活（未記錄於 IPAM，ICMP 可能被防火牆阻擋）"
+                    break
+            if status == "free":
+                detail = "IPAM 未分配，Ping 與常見 TCP Port 皆無回應"
+
         return JsonResponse({
             "ip": ip_str,
             "status": status,   # "free" | "in_use" | "unknown"
