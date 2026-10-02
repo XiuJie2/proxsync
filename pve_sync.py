@@ -166,7 +166,8 @@ class OptimizedPVEToNetBoxSync:
             print(f"✗ 發送 Telegram 通知失敗: {e}")
             return False
 
-    def log_ip_conflict_error(self, vm_name: str, ip_address: str, error_message: str):
+    def log_ip_conflict_error(self, vm_name: str, ip_address: str, error_message: str,
+                              vm_id: Optional[str] = None):
         error_info = {
             'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
             'vm_name': vm_name,
@@ -174,18 +175,19 @@ class OptimizedPVEToNetBoxSync:
             'error': error_message
         }
         self.error_log.append(error_info)
+        vm_label = f"{vm_name} (ID: {vm_id})" if vm_id else vm_name
         message = f"""
 🚨 <b>PVE-NetBox 同步 IP 衝突警告</b>
 
 📅 時間: {error_info['timestamp']}
-🖥️ 虛擬機: {vm_name}
+🖥️ 虛擬機: {vm_label}
 🌐 IP 位址: {ip_address}
 ❌ 錯誤: {error_message}
 
 ⚠️ 需要手動處理
 """
         self.send_telegram_notification(message)
-        print(f"📧 已發送 IP 衝突通知: {vm_name} - {ip_address}")
+        print(f"📧 已發送 IP 衝突通知: {vm_label} - {ip_address}")
 
     def log_mac_conflict_error(self, vm_name: str, mac_address: str, error_message: str):
         error_info = {
@@ -715,7 +717,8 @@ class OptimizedPVEToNetBoxSync:
     # ---------- IP 分配（改進版） ----------
     def assign_ip_to_interface(self, interface, ip_address: str, dns_name: str = None,
                                 is_vm_interface: bool = False, owner_name: str = None,
-                                vm_running: Optional[bool] = None) -> Optional[Any]:
+                                vm_running: Optional[bool] = None,
+                                owner_id: Optional[str] = None) -> Optional[Any]:
         try:
             if '/' not in ip_address:
                 ip_with_prefix = f"{ip_address}/24"
@@ -778,19 +781,23 @@ class OptimizedPVEToNetBoxSync:
             # different underlying cause (VRF/prefix validation, overlapping range,
             # etc.) fail silently with nothing but a stdout line.
             owner = owner_name or "Unknown"
-            if owner == "Unknown":
+            owner_id_resolved = owner_id
+            if owner == "Unknown" or not owner_id_resolved:
                 try:
                     if is_vm_interface:
                         vm_info = self.nb_api.virtualization.interfaces.get(interface.id)
                         if vm_info and vm_info.virtual_machine:
-                            owner = vm_info.virtual_machine.name
+                            if owner == "Unknown":
+                                owner = vm_info.virtual_machine.name
+                            if not owner_id_resolved:
+                                owner_id_resolved = getattr(vm_info.virtual_machine, 'serial', None)
                     else:
                         dev_info = self.nb_api.dcim.interfaces.get(interface.id)
-                        if dev_info and dev_info.device:
+                        if dev_info and dev_info.device and owner == "Unknown":
                             owner = dev_info.device.name
                 except Exception:
                     pass
-            self.log_ip_conflict_error(owner, ip_address, error_msg)
+            self.log_ip_conflict_error(owner, ip_address, error_msg, vm_id=owner_id_resolved)
             return None
 
     def _should_keep_existing_ip_owner(self, existing_ip, ip_with_prefix: str,
@@ -1174,7 +1181,8 @@ class OptimizedPVEToNetBoxSync:
                             ip_obj = self.assign_ip_to_interface(
                                 vm_interface, full_addr, f"{vm.name}.local",
                                 is_vm_interface=True, owner_name=vm.name,
-                                vm_running=(vm_status == 'running')
+                                vm_running=(vm_status == 'running'),
+                                owner_id=getattr(vm, 'serial', None)
                             )
                             if ip_obj:
                                 # 一台 VM 可能同時有多個 IPv4（如 172.17.*.* 與 172.20.*.*），
