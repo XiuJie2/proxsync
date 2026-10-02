@@ -254,6 +254,10 @@ class PvePluginSettings(NetBoxModel):
 
     telegram_bot_token = models.CharField(max_length=200, blank=True)
     telegram_chat_id = models.CharField(max_length=100, blank=True)
+    telegram_chat_id_backup = models.CharField(
+        max_length=100, blank=True,
+        help_text="備份異常通知專用群組（留空則沿用上方的一般通知 Chat ID）",
+    )
     webhook_secret = models.CharField(max_length=200, blank=True)
 
     default_cluster_name = models.CharField(max_length=100, default="default")

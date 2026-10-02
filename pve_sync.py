@@ -47,6 +47,7 @@ class OptimizedPVEToNetBoxSync:
             'resources_alert': 0,
             'node_mismatch_alerts': 0,
             'no_ip_alerts': 0,
+            'backup_overdue_alerts': 0,
             'total_vms': 0,
             'success_vms': 0,
             'elapsed_time': 0
@@ -86,12 +87,15 @@ class OptimizedPVEToNetBoxSync:
             if telegram_config:
                 self.telegram_bot_token = telegram_config.get('bot_token')
                 self.telegram_chat_id = telegram_config.get('chat_id')
+                self.telegram_chat_id_backup = telegram_config.get('chat_id_backup') or self.telegram_chat_id
             else:
                 self.telegram_bot_token = None
                 self.telegram_chat_id = None
+                self.telegram_chat_id_backup = None
         else:
             self.telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
             self.telegram_chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+            self.telegram_chat_id_backup = os.environ.get('TELEGRAM_CHAT_ID_BACKUP') or self.telegram_chat_id
 
         # NetBox 快取
         self.nb_cache = {
@@ -131,10 +135,12 @@ class OptimizedPVEToNetBoxSync:
     # Max Telegram messages per sync run; excess are counted and reported in the summary.
     _MAX_TELEGRAM_PER_SYNC = 50
 
-    def send_telegram_notification(self, message: str, force: bool = False) -> bool:
+    def send_telegram_notification(self, message: str, force: bool = False,
+                                   chat_id: Optional[str] = None) -> bool:
         if not getattr(self, 'notify_on_sync', True):
             return False
-        if not self.telegram_bot_token or not self.telegram_chat_id:
+        target_chat_id = chat_id or self.telegram_chat_id
+        if not self.telegram_bot_token or not target_chat_id:
             return False
         # Throttle: cap messages per sync run to avoid flooding on bulk changes.
         # force=True bypasses the cap — used for the end-of-sync summary so a
@@ -147,7 +153,7 @@ class OptimizedPVEToNetBoxSync:
             return False
         try:
             url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-            payload = {'chat_id': self.telegram_chat_id, 'text': message, 'parse_mode': 'HTML'}
+            payload = {'chat_id': target_chat_id, 'text': message, 'parse_mode': 'HTML'}
             response = requests.post(url, data=payload, timeout=10)
             if response.status_code == 200:
                 self._telegram_sent = sent + 1
@@ -257,6 +263,8 @@ class OptimizedPVEToNetBoxSync:
             extras.append(f"📍 節點放置異常: {self.stats['node_mismatch_alerts']}")
         if self.stats.get('no_ip_alerts', 0) > 0:
             extras.append(f"🌐 運行中但無 IP: {self.stats['no_ip_alerts']}")
+        if self.stats.get('backup_overdue_alerts', 0) > 0:
+            extras.append(f"🗄️ 備份逾期: {self.stats['backup_overdue_alerts']}")
         if extras:
             message += "\n🔍 檢測發現:\n" + "\n".join(extras)
         if self.error_log:
@@ -706,7 +714,8 @@ class OptimizedPVEToNetBoxSync:
 
     # ---------- IP 分配（改進版） ----------
     def assign_ip_to_interface(self, interface, ip_address: str, dns_name: str = None,
-                                is_vm_interface: bool = False, owner_name: str = None) -> Optional[Any]:
+                                is_vm_interface: bool = False, owner_name: str = None,
+                                vm_running: Optional[bool] = None) -> Optional[Any]:
         try:
             if '/' not in ip_address:
                 ip_with_prefix = f"{ip_address}/24"
@@ -726,6 +735,16 @@ class OptimizedPVEToNetBoxSync:
                         break
 
             if existing_ip:
+                already_here = (existing_ip.assigned_object_id == interface.id
+                                and existing_ip.assigned_object_type == assigned_object_type)
+                if (not already_here and is_vm_interface
+                        and existing_ip.assigned_object_type == 'virtualization.vminterface'):
+                    # 兩台 VM 可能都設定了同一組 IP —— 依雙方開機狀態決定歸屬，
+                    # 而不是誰先同步到就直接搶走。
+                    if self._should_keep_existing_ip_owner(existing_ip, ip_with_prefix,
+                                                           owner_name, vm_running):
+                        return None
+
                 # 更新已存在的IP
                 existing_ip.address = ip_with_prefix  # 更新前綴長度
                 existing_ip.assigned_object_type = assigned_object_type
@@ -773,6 +792,54 @@ class OptimizedPVEToNetBoxSync:
                     pass
             self.log_ip_conflict_error(owner, ip_address, error_msg)
             return None
+
+    def _should_keep_existing_ip_owner(self, existing_ip, ip_with_prefix: str,
+                                       new_owner_name: Optional[str],
+                                       new_vm_running: Optional[bool]) -> bool:
+        """兩台 VM 都設定了同一組 IP 時，依雙方開機狀態決定歸屬。
+
+        - 雙方都開機：真衝突，無法自動判斷該給誰，發 Telegram 通知交由人工
+          處理，保留原指派（回傳 True）。
+        - 一開一關：IP 歸開機中的那台。若目前擁有者正是開機中的那台，保留
+          不搬動；否則交回 False 讓呼叫端把 IP 轉移給開機中的新 VM。
+        - 雙方都關機：沒有立即的網路衝突，保留原指派，靜默不處理。
+        - 任一方開機狀態無法確認：保守起見視同衝突，通知後保留原指派。
+
+        回傳 True 代表「不要搬動，保留原本的指派」。
+        """
+        old_vm_name = 'Unknown'
+        old_running = None
+        try:
+            old_iface = self.nb_api.virtualization.interfaces.get(existing_ip.assigned_object_id)
+            old_vm = getattr(old_iface, 'virtual_machine', None) if old_iface else None
+            if old_vm:
+                old_vm_name = old_vm.name
+                old_vm_cached = self.nb_cache['virtual_machines'].get(old_vm.id)
+                old_status = getattr(getattr(old_vm_cached, 'status', None), 'value', None)
+                old_running = (old_status == 'active')
+        except Exception as e:
+            print(f"  ⚠ 無法確認 IP {ip_with_prefix} 原擁有者狀態: {e}")
+
+        new_owner_name = new_owner_name or 'Unknown'
+
+        if old_running is None or new_vm_running is None or (old_running and new_vm_running):
+            state = lambda r: '未知' if r is None else ('🟢 開機' if r else '🔴 關機')
+            msg = (
+                f"🚨 <b>IP 位址衝突（兩台 VM 設定了相同 IP）</b>\n\n"
+                f"🌐 IP: <code>{ip_with_prefix}</code>\n\n"
+                f"🖥️ {old_vm_name}: {state(old_running)}\n"
+                f"🖥️ {new_owner_name}: {state(new_vm_running)}\n\n"
+                f"⚠️ 無法自動判斷歸屬，請人工確認後手動處理。"
+            )
+            self.send_telegram_notification(msg)
+            return True
+
+        if new_vm_running and not old_running:
+            print(f"  🔁 IP {ip_with_prefix} 原屬已關機的 {old_vm_name}，轉移給開機中的 {new_owner_name}")
+            return False
+
+        # old_running and not new_vm_running：IP 應留給開機中的原擁有者
+        return True
 
     # ---------- 節點網路介面同步 ----------
     def sync_node_network_interfaces(self, device, node_name: str, network_data: List[Dict]):
@@ -1044,7 +1111,7 @@ class OptimizedPVEToNetBoxSync:
 
     # ---------- VM 介面處理 ----------
     def process_vm_interfaces(self, vm, vm_config: Dict, agent_interfaces: Dict, mac_to_interface: Dict,
-                              device) -> Tuple[int, Optional[Any], List[Dict]]:
+                              device, vm_status: str = '') -> Tuple[int, Optional[Any], List[Dict]]:
         interface_count = 0
         primary_ip = None
         primary_ip_value = None
@@ -1106,7 +1173,8 @@ class OptimizedPVEToNetBoxSync:
                             full_addr = f"{ip_addr}/{prefix_len}"
                             ip_obj = self.assign_ip_to_interface(
                                 vm_interface, full_addr, f"{vm.name}.local",
-                                is_vm_interface=True, owner_name=vm.name
+                                is_vm_interface=True, owner_name=vm.name,
+                                vm_running=(vm_status == 'running')
                             )
                             if ip_obj:
                                 # 一台 VM 可能同時有多個 IPv4（如 172.17.*.* 與 172.20.*.*），
@@ -1831,6 +1899,45 @@ class OptimizedPVEToNetBoxSync:
             )
             self.send_telegram_notification(msg)
 
+    def check_backup_overdue(self, vm_id: str, vm_name: str, tag_names: List[str], netbox_cluster_id: int):
+        """標記 0N 的 VM（需定期備份）若已逾期 7 天未備份（或從未備份過），
+        發送備份異常通知 —— 走獨立的備份告警 Telegram 群組，與一般同步通知
+        分流，避免大量同步訊息把真正需要人工處理的備份告警淹沒。
+
+        每次同步皆檢查（非一次性事件），問題未解決會持續提醒。
+        僅在 NetBox（Django）環境下執行，standalone 執行時靜默跳過。
+        """
+        if not any(t.lower() == '0n' for t in tag_names):
+            return
+        try:
+            from pve_sync_plugin.models import PveBackupStatus
+        except Exception:
+            return
+        try:
+            backup = PveBackupStatus.objects.filter(
+                vm__serial=str(vm_id), vm__cluster_id=netbox_cluster_id
+            ).first()
+        except Exception as e:
+            print(f"  ⚠ 無法查詢備份狀態: {e}")
+            return
+
+        age_days = backup.backup_age_days if backup else None
+        if age_days is not None and age_days <= 7:
+            return
+
+        self.stats['backup_overdue_alerts'] = self.stats.get('backup_overdue_alerts', 0) + 1
+        age_desc = '從未有備份記錄' if age_days is None else f'已 {age_days} 天未備份'
+        print(f"🗄️ VM {vm_name} 備份逾期: {age_desc}")
+        msg = (
+            f"🗄️ <b>VM 備份逾期警告</b>\n\n"
+            f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+            f"🔀 叢集: {self.cluster_name}\n"
+            f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"⏰ {age_desc}（標記 0N，需定期備份）\n"
+            f"⚠️ 請確認 PBS 備份任務是否正常執行。"
+        )
+        self.send_telegram_notification(msg, chat_id=getattr(self, 'telegram_chat_id_backup', None))
+
     # ---------- 虛擬機處理主邏輯 ----------
     def process_virtual_machine(self, vm_data: Dict, device, cluster: Dict, force: bool = False) -> bool:
         vm_id = str(vm_data['vmid'])
@@ -1912,6 +2019,9 @@ class OptimizedPVEToNetBoxSync:
 ⚠️ 虛擬機應處於關機狀態，請確認開機原因。
 """
                 self.send_telegram_notification(message)
+
+        if tag_names:
+            self.check_backup_overdue(vm_id, original_vm_name, tag_names, cluster['id'])
 
         # 節點放置檢查：VM 描述 (Notes) 內若標記 "node: <預期節點>" 或
         # "預設放在<預期節點>"，而目前實際所在節點與其不符，則提醒
@@ -2024,7 +2134,8 @@ class OptimizedPVEToNetBoxSync:
                     # 變更時才發現。process_vm_interfaces 本身是冪等的（已存在的 MAC/IP
                     # 不會重複建立），所以在跳過分支呼叫它不會產生多餘的 NetBox 寫入。
                     _, skip_primary_ip, _ = self.process_vm_interfaces(
-                        cached_vm, vm_config, agent_interfaces, mac_to_interface, device
+                        cached_vm, vm_config, agent_interfaces, mac_to_interface, device,
+                        vm_status=vm_status
                     )
                     if skip_primary_ip:
                         try:
@@ -2140,7 +2251,8 @@ class OptimizedPVEToNetBoxSync:
                 print(f"  建立虛擬機: {vm_name}")
             # 處理介面（傳入device）
             interface_count, primary_ip, interfaces_data = self.process_vm_interfaces(
-                vm_obj, vm_config, agent_interfaces, mac_to_interface, device
+                vm_obj, vm_config, agent_interfaces, mac_to_interface, device,
+                vm_status=vm_status
             )
             disk_count, disk_size = self.process_vm_disks(vm_obj, vm_config)
             primary_ip_str = ''

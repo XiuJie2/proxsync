@@ -63,6 +63,7 @@ def get_plugin_config(key, default=None):
         'netbox_token': 'NB_API_TOKEN',
         'telegram_bot_token': 'TELEGRAM_BOT_TOKEN',
         'telegram_chat_id': 'TELEGRAM_CHAT_ID',
+        'telegram_chat_id_backup': 'TELEGRAM_CHAT_ID_BACKUP',
     }
 
     env_key = env_mapping.get(key)

@@ -27,6 +27,7 @@ _ENV_KEYS = [
     "NB_API_TOKEN",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
+    "TELEGRAM_CHAT_ID_BACKUP",
 ]
 
 
@@ -136,6 +137,7 @@ def build_runtime_config_from_db(cluster_name="default"):
             "enabled": telegram_enabled,
             "bot_token": get_plugin_config("telegram_bot_token", ""),
             "chat_id": get_plugin_config("telegram_chat_id", ""),
+            "chat_id_backup": get_plugin_config("telegram_chat_id_backup", ""),
         },
         "monitoring": {
             "node_offline_alert": True,
@@ -209,6 +211,7 @@ def _apply_runtime_env(config_path, config_data):
     os.environ["NB_API_TOKEN"] = str(netbox.get("token", ""))
     os.environ["TELEGRAM_BOT_TOKEN"] = str(telegram.get("bot_token", ""))
     os.environ["TELEGRAM_CHAT_ID"] = str(telegram.get("chat_id", ""))
+    os.environ["TELEGRAM_CHAT_ID_BACKUP"] = str(telegram.get("chat_id_backup", ""))
 
 
 def cleanup_runtime_env():

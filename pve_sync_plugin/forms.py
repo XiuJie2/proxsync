@@ -46,6 +46,7 @@ class PvePluginSettingsForm(NetBoxModelForm):
             "netbox_token",
             "telegram_bot_token",
             "telegram_chat_id",
+            "telegram_chat_id_backup",
             "webhook_secret",
             "default_cluster_name",
             "default_netbox_cluster",
@@ -63,6 +64,10 @@ class PvePluginSettingsForm(NetBoxModelForm):
             "telegram_chat_id": (
                 "Telegram chat/group ID for notifications (optional). "
                 "For group chats, the ID must start with a minus sign, e.g. -1002581073501"
+            ),
+            "telegram_chat_id_backup": (
+                "Dedicated chat/group ID for backup-overdue alerts (optional). "
+                "Leave blank to route these into the chat ID above instead."
             ),
             "webhook_secret": "HMAC shared secret for PVE webhook signature verification",
             "state_db_path": "Path to SQLite state database for incremental sync",
