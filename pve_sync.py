@@ -816,6 +816,7 @@ class OptimizedPVEToNetBoxSync:
         """
         old_vm_name = 'Unknown'
         old_running = None
+        old_vm_cached = None
         try:
             old_iface = self.nb_api.virtualization.interfaces.get(existing_ip.assigned_object_id)
             old_vm = getattr(old_iface, 'virtual_machine', None) if old_iface else None
@@ -842,11 +843,33 @@ class OptimizedPVEToNetBoxSync:
             return True
 
         if new_vm_running and not old_running:
+            # NetBox 不允許在 IP 仍被設為某物件的 Primary IP 時重新指派它的
+            # assigned_object（會丟 400：Cannot reassign IP address while it
+            # is designated as the primary IP for the parent object）。這在
+            # clone 情境特別常見：新 clone 出來的 VM 開機、舊機關機但兩者
+            # IP 相同，若不先清掉舊 VM 的 primary_ip4/6 參照，重新指派一定
+            # 會被擋下、整個落入「無法處理」的衝突通知分支。
+            if old_vm_cached is not None:
+                self._clear_stale_primary_ip(old_vm_cached, existing_ip)
             print(f"  🔁 IP {ip_with_prefix} 原屬已關機的 {old_vm_name}，轉移給開機中的 {new_owner_name}")
             return False
 
         # old_running and not new_vm_running：IP 應留給開機中的原擁有者
         return True
+
+    def _clear_stale_primary_ip(self, vm_obj, ip_obj) -> None:
+        """若 vm_obj 的 primary_ip4/6 仍指向 ip_obj，先清掉再讓呼叫端重新指派。"""
+        try:
+            changed = False
+            for field in ('primary_ip4', 'primary_ip6'):
+                current = getattr(vm_obj, field, None)
+                if current is not None and getattr(current, 'id', None) == ip_obj.id:
+                    setattr(vm_obj, field, None)
+                    changed = True
+            if changed:
+                vm_obj.save()
+        except Exception as e:
+            print(f"  ⚠ 清除舊 VM 的 Primary IP 參照失敗: {e}")
 
     # ---------- 節點網路介面同步 ----------
     def sync_node_network_interfaces(self, device, node_name: str, network_data: List[Dict]):
