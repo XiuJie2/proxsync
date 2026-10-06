@@ -89,15 +89,15 @@ class PveClusterConfigForm(NetBoxModelForm):
 
     netbox_site = DynamicModelChoiceField(
         queryset=Site.objects.all(),
-        required=False,
+        required=True,
     )
     netbox_cluster_type = DynamicModelChoiceField(
         queryset=ClusterType.objects.all(),
-        required=False,
+        required=True,
     )
     netbox_cluster = DynamicModelChoiceField(
         queryset=Cluster.objects.all(),
-        required=False,
+        required=True,
     )
 
     class Meta:
@@ -127,6 +127,12 @@ class PveClusterConfigForm(NetBoxModelForm):
 
     def clean(self):
         super().clean()
+        # netbox_cluster is required now, so a blank value already has its
+        # own "This field is required" error — skip the conflict check here
+        # instead of piling a second, redundant message onto the same field.
+        if not self.cleaned_data.get("netbox_cluster"):
+            return
+
         from .sync.config_bridge import find_netbox_cluster_conflict, resolve_netbox_cluster_name
 
         # Each PVE cluster needs its own NetBox cluster: VMs are matched by
@@ -136,13 +142,7 @@ class PveClusterConfigForm(NetBoxModelForm):
         target = resolve_netbox_cluster_name(candidate)
         conflict = find_netbox_cluster_conflict(candidate, target)
         if conflict:
-            if candidate.netbox_cluster:
-                message = f"NetBox 叢集「{target}」已被 PVE 叢集「{conflict.name}」使用，請選擇其他叢集。"
-            else:
-                message = (
-                    f"未選擇時會使用預設叢集「{target}」，但它已被 PVE 叢集「{conflict.name}」使用。"
-                    "請為這個 PVE 叢集選擇（或先建立）專屬的 NetBox 叢集。"
-                )
+            message = f"NetBox 叢集「{target}」已被 PVE 叢集「{conflict.name}」使用，請選擇其他叢集。"
             self.add_error("netbox_cluster", message)
 
 
