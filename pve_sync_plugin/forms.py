@@ -125,6 +125,26 @@ class PveClusterConfigForm(NetBoxModelForm):
             ),
         }
 
+    def clean(self):
+        super().clean()
+        from .sync.config_bridge import find_netbox_cluster_conflict, resolve_netbox_cluster_name
+
+        # Each PVE cluster needs its own NetBox cluster: VMs are matched by
+        # VMID inside it, so a shared one lets clusters overwrite each other.
+        candidate = PveClusterConfig(pk=self.instance.pk)
+        candidate.netbox_cluster = self.cleaned_data.get("netbox_cluster")
+        target = resolve_netbox_cluster_name(candidate)
+        conflict = find_netbox_cluster_conflict(candidate, target)
+        if conflict:
+            if candidate.netbox_cluster:
+                message = f"NetBox 叢集「{target}」已被 PVE 叢集「{conflict.name}」使用，請選擇其他叢集。"
+            else:
+                message = (
+                    f"未選擇時會使用預設叢集「{target}」，但它已被 PVE 叢集「{conflict.name}」使用。"
+                    "請為這個 PVE 叢集選擇（或先建立）專屬的 NetBox 叢集。"
+                )
+            self.add_error("netbox_cluster", message)
+
 
 # ---------------------------------------------------------------------------
 # Filter Forms (list view sidebar filters)

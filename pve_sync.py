@@ -2129,9 +2129,14 @@ class OptimizedPVEToNetBoxSync:
         if self.enhanced_mode:
             self.detect_config_drift(int(vm_id), original_vm_name, vm_config, tag_names,
                                      network_interfaces, current_node=node_name, last_config=last_config)
+            cached_vm = self.nb_cache['virtual_machines_by_serial'].get(f"{vm_id}::{cluster['id']}")
+            if not force and cached_vm is not None and cached_vm.name != vm_name:
+                # PVE 配置沒變但 NetBox 記錄的名稱對不上，代表這筆記錄被外部改寫過
+                # （例如被另一個叢集的同步覆蓋）。不能走增量跳過，要完整重寫回來。
+                print(f"  ⚠️  VM {original_vm_name} 在 NetBox 的名稱為 {cached_vm.name}，強制完整同步修正")
+                force = True
             if not force and not self.should_sync_vm(int(vm_id), vm_config, tag_names, network_interfaces,
                                                      last_config=last_config):
-                cached_vm = self.nb_cache['virtual_machines_by_serial'].get(f"{vm_id}::{cluster['id']}")
                 if cached_vm is None:
                     # VM 在 NetBox 中不存在（例如隨節點被連帶刪除），
                     # 但 state_db 仍有舊 hash 導致增量跳過。強制往下完整同步。

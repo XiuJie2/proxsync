@@ -63,6 +63,36 @@ def validate_config(config_data):
         )
 
 
+def resolve_netbox_cluster_name(cluster):
+    """Name of the NetBox cluster a PveClusterConfig syncs into."""
+    from pve_sync_plugin.utils import get_plugin_config
+
+    if cluster.netbox_cluster:
+        return cluster.netbox_cluster.name
+    return get_plugin_config("default_netbox_cluster", "Proxmox Cluster")
+
+
+def find_netbox_cluster_conflict(cluster, netbox_cluster_name=None):
+    """Return another PveClusterConfig that syncs into the same NetBox cluster.
+
+    VMs are matched by VMID within a NetBox cluster, and VMIDs repeat across
+    PVE clusters, so two PVE clusters sharing one NetBox cluster overwrite each
+    other's VMs. A config with no NetBox cluster selected counts as using the
+    plugin default.
+    """
+    from pve_sync_plugin.models import PveClusterConfig
+
+    if netbox_cluster_name is None:
+        netbox_cluster_name = resolve_netbox_cluster_name(cluster)
+    others = PveClusterConfig.objects.select_related("netbox_cluster")
+    if cluster.pk:
+        others = others.exclude(pk=cluster.pk)
+    for other in others:
+        if resolve_netbox_cluster_name(other) == netbox_cluster_name:
+            return other
+    return None
+
+
 def build_runtime_config_from_db(cluster_name="default"):
     """Read plugin DB models and produce a config dict compatible with
     the standalone sync engine.
@@ -93,11 +123,14 @@ def build_runtime_config_from_db(cluster_name="default"):
             if cluster.netbox_cluster_type
             else get_plugin_config("default_cluster_type", "Proxmox")
         )
-        netbox_cluster = (
-            cluster.netbox_cluster.name
-            if cluster.netbox_cluster
-            else get_plugin_config("default_netbox_cluster", "Proxmox Cluster")
-        )
+        netbox_cluster = resolve_netbox_cluster_name(cluster)
+        conflict = find_netbox_cluster_conflict(cluster)
+        if conflict:
+            raise ConfigValidationError(
+                f"PVE 叢集「{cluster.name}」會同步到 NetBox 叢集「{netbox_cluster}」，"
+                f"但該叢集已被「{conflict.name}」使用。兩個 PVE 叢集寫入同一個 NetBox 叢集"
+                "會讓相同 VMID 的 VM 互相覆蓋，請先在 PVE Clusters 設定中為它指定專屬的 NetBox Cluster。"
+            )
         logical_name = cluster.name
         notify_on_sync = cluster.notify_on_sync
     else:
