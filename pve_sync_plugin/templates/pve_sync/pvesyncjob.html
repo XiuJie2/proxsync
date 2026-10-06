@@ -77,6 +77,16 @@
   </div>
 {% endif %}
 
+{% if object.details.backup_errors %}
+  <div class="alert alert-warning" role="alert">
+    <i class="mdi mdi-alert"></i>
+    <strong>部分 PBS 備份資料讀取失敗，備份狀態可能不是最新：</strong>
+    <ul class="mb-0">
+      {% for err in object.details.backup_errors %}<li>{{ err }}</li>{% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
 <div class="row">
   <div class="col col-md-6">
     <div class="card">
@@ -147,6 +157,14 @@
             </td>
           </tr>
           <tr>
+            <th scope="row">Backups Found on PBS</th>
+            <td>
+              {% if object.details.backup_found is not None %}
+                {{ object.details.backup_found }}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          <tr>
             <th scope="row">Backup Records Updated</th>
             <td>
               {% if object.details.backup_updated is not None %}
@@ -154,6 +172,17 @@
               {% elif object.status == "running" %}
                 <span class="text-muted">同步完成後顯示</span>
               {% else %}—{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Ambiguous VMID (Skipped)</th>
+            <td>
+              {% if object.details.backup_ambiguous %}
+                <span class="text-warning">{{ object.details.backup_ambiguous|length }}</span>
+                <ul class="mb-0 small">
+                  {% for item in object.details.backup_ambiguous %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+              {% else %}0{% endif %}
             </td>
           </tr>
           <tr>

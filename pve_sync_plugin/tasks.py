@@ -253,12 +253,18 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
 
         # Write backup records to PveBackupStatus
         backup_updated, backup_skipped = None, None
+        backup_found, backup_errors, backup_ambiguous = None, [], []
         try:
-            backup_records = _fetch_pbs_snapshots(pbs)
-            backup_updated, backup_skipped = _apply_pbs_backup_status(backup_records)
+            backup_records, backup_errors = _fetch_pbs_snapshots(pbs)
+            backup_found = len(backup_records)
+            backup_updated, backup_skipped, backup_ambiguous = _apply_pbs_backup_status(
+                backup_records,
+                snapshot_lookup=lambda info: _fetch_pbs_latest_snapshot(pbs, info),
+            )
             logger.info("PBS backup status: %d updated, %d no VM match", backup_updated, backup_skipped)
         except Exception as exc:
             logger.warning("PBS backup status sync failed (non-fatal): %s", exc)
+            backup_errors.append(str(exc))
 
         job.refresh_from_db()
         job.status = "success"
@@ -266,6 +272,14 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
         if backup_updated is not None:
             job.details["backup_updated"] = backup_updated
             job.details["backup_skipped"] = backup_skipped
+        if backup_found is not None:
+            job.details["backup_found"] = backup_found
+        if backup_ambiguous:
+            job.details["backup_ambiguous"] = backup_ambiguous
+        if backup_errors:
+            # Surfaced on the job page: a "successful" sync that could not read
+            # the backups must not look like "nothing new".
+            job.details["backup_errors"] = backup_errors
         job.details.pop("heartbeat", None)
         job.save()
 
@@ -303,12 +317,12 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
 # PBS backup status helpers
 # ---------------------------------------------------------------------------
 
-def _fetch_pbs_snapshots(pbs):
-    """Query PBS API and return the latest backup per vmid across all datastores.
+# Listing a large datastore can take well over 30s on PBS (it walks every
+# backup group on disk), so these calls need a generous timeout.
+_PBS_LIST_TIMEOUT = 300
 
-    Returns:
-        dict: {(backup_type, vmid_str): {'last_backup': datetime, 'size': int, 'pve_backup_id': str}}
-    """
+
+def _pbs_session(pbs):
     import urllib3
     import requests
 
@@ -319,16 +333,41 @@ def _fetch_pbs_snapshots(pbs):
         "Authorization": f"PBSAPIToken={pbs.pbs_token_name}:{pbs.pbs_token_secret}",
         "Accept": "application/json",
     })
+    session.verify = pbs.pbs_verify_ssl
+    return session
+
+
+def _fetch_pbs_snapshots(pbs):
+    """Query PBS API and return the latest backup per vmid across all datastores
+    and namespaces.
+
+    Uses the per-namespace ``groups`` listing (one row per VM, carrying its
+    ``last-backup``) instead of listing every snapshot: the full snapshot
+    listing of a big datastore is slow enough to time out, which used to leave
+    the backup status silently stale.
+
+    Returns:
+        (records, errors)
+        records: {(backup_type, vmid_str): {'last_backup': datetime, 'size': int,
+                  'pve_backup_id': str, 'backup_path': str, 'store': str, 'ns': str}}
+        errors: list of human-readable strings for datastores/namespaces that
+                could not be read
+    """
+    session = _pbs_session(pbs)
     host = pbs.pbs_host.rstrip("/")
-    verify = pbs.pbs_verify_ssl
+    errors = []
 
     # Get datastore list
     try:
-        resp = session.get(f"{host}/api2/json/admin/datastore", verify=verify, timeout=15)
-        datastores = resp.json().get("data", []) if resp.status_code == 200 else []
+        resp = session.get(f"{host}/api2/json/admin/datastore", timeout=30)
+        if resp.status_code != 200:
+            errors.append(f"無法列出 datastore: HTTP {resp.status_code} {resp.text[:200]}")
+            return {}, errors
+        datastores = resp.json().get("data", [])
     except Exception as exc:
         logger.warning("PBS: cannot list datastores: %s", exc)
-        return {}
+        errors.append(f"無法列出 datastore: {exc}")
+        return {}, errors
 
     best = {}  # (type, vmid) -> best snapshot info
 
@@ -336,95 +375,175 @@ def _fetch_pbs_snapshots(pbs):
         store = ds.get("store") or ds.get("name")
         if not store:
             continue
+
+        # Backups may live in namespaces; the root namespace is "".
+        namespaces = [""]
         try:
             resp = session.get(
-                f"{host}/api2/json/admin/datastore/{store}/snapshots",
-                verify=verify, timeout=30,
+                f"{host}/api2/json/admin/datastore/{store}/namespace",
+                params={"max-depth": 7}, timeout=_PBS_LIST_TIMEOUT,
             )
-            if resp.status_code != 200:
-                continue
-            snapshots = resp.json().get("data", [])
+            if resp.status_code == 200:
+                namespaces = sorted(
+                    {""} | {n.get("ns", "") for n in resp.json().get("data", [])}
+                )
         except Exception as exc:
-            logger.warning("PBS: cannot list snapshots for %s: %s", store, exc)
-            continue
+            logger.warning("PBS: cannot list namespaces for %s: %s", store, exc)
 
-        for snap in snapshots:
-            btype = snap.get("backup-type", "vm")
-            vmid = str(snap.get("backup-id", ""))
-            if not vmid or btype not in ("vm", "ct"):
+        for ns in namespaces:
+            where = f"{store}" + (f" (ns={ns})" if ns else "")
+            try:
+                resp = session.get(
+                    f"{host}/api2/json/admin/datastore/{store}/groups",
+                    params={"ns": ns} if ns else None, timeout=_PBS_LIST_TIMEOUT,
+                )
+                if resp.status_code != 200:
+                    logger.warning("PBS: cannot list groups for %s: HTTP %s %s",
+                                   where, resp.status_code, resp.text[:200])
+                    errors.append(f"{where}: HTTP {resp.status_code} {resp.text[:200]}")
+                    continue
+                groups = resp.json().get("data", [])
+            except Exception as exc:
+                logger.warning("PBS: cannot list groups for %s: %s", where, exc)
+                errors.append(f"{where}: {exc}")
                 continue
 
-            ts = snap.get("backup-time", 0)
-            backup_dt = (
-                datetime.datetime.fromtimestamp(ts, tz=dt_timezone.utc) if ts else None
-            )
-            size = snap.get("size", 0) or 0
+            for group in groups:
+                btype = group.get("backup-type", "vm")
+                vmid = str(group.get("backup-id", ""))
+                if not vmid or btype not in ("vm", "ct"):
+                    continue
 
-            key = (btype, vmid)
-            existing = best.get(key)
-            if existing is None or (backup_dt and backup_dt > existing["last_backup"]):
-                best[key] = {
-                    "last_backup": backup_dt,
-                    "size": size,
-                    "pve_backup_id": f"{btype}/{vmid}",
-                    "backup_path": f"{store}/{btype}/{vmid}",
-                }
+                ts = group.get("last-backup", 0)
+                if not ts:
+                    continue
+                backup_dt = datetime.datetime.fromtimestamp(ts, tz=dt_timezone.utc)
+
+                key = (btype, vmid)
+                existing = best.get(key)
+                if existing is None or backup_dt > existing["last_backup"]:
+                    path = f"{store}/{ns}/{btype}/{vmid}" if ns else f"{store}/{btype}/{vmid}"
+                    best[key] = {
+                        "last_backup": backup_dt,
+                        "size": 0,
+                        "pve_backup_id": f"{btype}/{vmid}",
+                        "backup_path": path,
+                        "store": store,
+                        "ns": ns,
+                    }
 
     logger.info("PBS: found latest backups for %d VMs/CTs", len(best))
-    return best
+    return best, errors
 
 
-def _apply_pbs_backup_status(backup_records):
+def _fetch_pbs_latest_snapshot(pbs, info):
+    """Return {'size': int, 'comment': str} for the latest snapshot described by
+    ``info``. The comment is the VM name PVE recorded when it took the backup.
+    """
+    result = {"size": 0, "comment": ""}
+    btype, vmid = info["pve_backup_id"].split("/", 1)
+    params = {"backup-type": btype, "backup-id": vmid}
+    if info.get("ns"):
+        params["ns"] = info["ns"]
+    try:
+        resp = _pbs_session(pbs).get(
+            f"{pbs.pbs_host.rstrip('/')}/api2/json/admin/datastore/{info['store']}/snapshots",
+            params=params, timeout=60,
+        )
+        if resp.status_code != 200:
+            return result
+        snapshots = resp.json().get("data", [])
+    except Exception as exc:
+        logger.debug("PBS: cannot fetch snapshot for %s: %s", info["pve_backup_id"], exc)
+        return result
+    if snapshots:
+        latest = max(snapshots, key=lambda snap: snap.get("backup-time", 0))
+        result["size"] = latest.get("size", 0) or 0
+        result["comment"] = (latest.get("comment") or "").strip()
+    return result
+
+
+def _apply_pbs_backup_status(backup_records, snapshot_lookup=None):
     """Write PBS backup data into PveBackupStatus Django model records.
 
-    Matching priority:
-      1. Existing PveBackupStatus where pve_backup_id already matches.
-      2. VirtualMachine with custom_field_data__pve_vmid == vmid.
+    PBS only knows the VMID, and VMIDs repeat across PVE clusters. When several
+    NetBox VMs share the VMID, the VM name stored in the snapshot comment
+    decides which one the backup belongs to; if that cannot be decided the
+    record is left alone rather than credited to the wrong VM.
+
+    ``snapshot_lookup(info)`` returns {'size', 'comment'} for the latest
+    snapshot. It is only called for ambiguous VMIDs and for records that change.
 
     Returns:
-        (updated: int, skipped: int)
+        (updated: int, skipped: int, ambiguous: list[str])
     """
     from .models import PveBackupStatus
     from virtualization.models import VirtualMachine
 
     updated = 0
     skipped = 0
+    ambiguous = []
 
     for (btype, vmid), info in backup_records.items():
         pve_backup_id = info["pve_backup_id"]
         last_backup = info.get("last_backup")
         size = info.get("size", 0)
+        snapshot = None
 
-        vm = None
-
-        # 1. Find via existing pve_backup_id link
         existing = (
             PveBackupStatus.objects.filter(pve_backup_id=pve_backup_id)
             .select_related("vm")
             .first()
         )
-        if existing:
-            vm = existing.vm
+        try:
+            candidates = list(VirtualMachine.objects.filter(custom_field_data__vm_id=int(vmid)))
+        except Exception:
+            candidates = []
+        if not candidates and existing:
+            candidates = [existing.vm]
 
-        # 2. Find via custom field pve_vmid
-        if vm is None:
-            try:
-                vm = VirtualMachine.objects.filter(
-                    custom_field_data__vm_id=int(vmid)
-                ).first()
-            except Exception:
-                pass
-
-        if vm is None:
+        if not candidates:
             skipped += 1
             logger.debug("PBS: no NetBox VM for %s/%s — skipping", btype, vmid)
             continue
+
+        if len(candidates) == 1:
+            vm = candidates[0]
+        else:
+            snapshot = snapshot_lookup(info) if snapshot_lookup is not None else {}
+            name = (snapshot.get("comment") or "").lower()
+            # The PVE sync appends "-<vmid>" when the plain name is already taken.
+            names = {name, f"{name}-{vmid}"}
+            matches = [c for c in candidates if c.name.lower() in names] if name else []
+            if len(matches) == 1:
+                vm = matches[0]
+            else:
+                ambiguous.append(
+                    f"{pve_backup_id} (PBS: {snapshot.get('comment') or '?'}; "
+                    f"NetBox: {', '.join(sorted(c.name for c in candidates))})"
+                )
+                continue
+
+        # The backup was previously credited to another VM with the same VMID.
+        if existing and existing.vm_id != vm.pk:
+            existing.pve_backup_id = None
+            existing.last_backup = None
+            existing.backup_size = None
+            existing.backup_path = ""
+            existing.backup_status = BackupStatusChoices.STATUS_UNKNOWN
+            existing.save(update_fields=[
+                "last_backup", "backup_size", "pve_backup_id", "backup_path", "backup_status",
+            ])
 
         status_obj, _ = PveBackupStatus.objects.get_or_create(vm=vm)
 
         # Only update if this backup is newer than what is stored
         if last_backup and (status_obj.last_backup is None or last_backup > status_obj.last_backup):
             age_days = (timezone.now() - last_backup).days
+            if not size and snapshot_lookup is not None:
+                if snapshot is None:
+                    snapshot = snapshot_lookup(info)
+                size = snapshot.get("size", 0)
             status_obj.last_backup = last_backup
             status_obj.backup_size = size if size else status_obj.backup_size
             status_obj.pve_backup_id = pve_backup_id
@@ -439,4 +558,4 @@ def _apply_pbs_backup_status(backup_records):
             ])
             updated += 1
 
-    return updated, skipped
+    return updated, skipped, ambiguous
