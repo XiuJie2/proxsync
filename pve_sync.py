@@ -1931,14 +1931,25 @@ class OptimizedPVEToNetBoxSync:
             self.send_telegram_notification(msg)
 
     def check_backup_overdue(self, vm_id: str, vm_name: str, tag_names: List[str], netbox_cluster_id: int):
-        """標記 0N 的 VM（需定期備份）若已逾期 7 天未備份（或從未備份過），
-        發送備份異常通知 —— 走獨立的備份告警 Telegram 群組，與一般同步通知
-        分流，避免大量同步訊息把真正需要人工處理的備份告警淹沒。
+        """標記了「監控標籤」的 VM（需定期備份）若已逾期 7 天未備份（或從未
+        備份過），發送備份異常通知 —— 走獨立的備份告警 Telegram 群組，與
+        一般同步通知分流，避免大量同步訊息把真正需要人工處理的備份告警淹沒。
+
+        監控標籤與忽略標籤皆可在 Settings 頁面設定（預設 0N / NO-Backup）：
+        - 監控標籤留空 = 完全停用備份逾期監控。
+        - VM 若帶有忽略標籤，一律跳過（優先於監控標籤，用於標記不需要備份的 VM）。
 
         每次同步皆檢查（非一次性事件），問題未解決會持續提醒。
         僅在 NetBox（Django）環境下執行，standalone 執行時靜默跳過。
         """
-        if not any(t.lower() == '0n' for t in tag_names):
+        watch_tag = self.monitoring_config.get('backup_watch_tag', '0N')
+        ignore_tag = self.monitoring_config.get('backup_ignore_tag', 'NO-Backup')
+        if not watch_tag:
+            return
+        tags_lower = {t.lower() for t in tag_names}
+        if ignore_tag and ignore_tag.lower() in tags_lower:
+            return
+        if watch_tag.lower() not in tags_lower:
             return
         try:
             from pve_sync_plugin.models import PveBackupStatus
@@ -1964,7 +1975,7 @@ class OptimizedPVEToNetBoxSync:
             f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
             f"🔀 叢集: {self.cluster_name}\n"
             f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            f"⏰ {age_desc}（標記 0N，需定期備份）\n"
+            f"⏰ {age_desc}（標記 {watch_tag}，需定期備份）\n"
             f"⚠️ 請確認 PBS 備份任務是否正常執行。"
         )
         self.send_telegram_notification(msg, chat_id=getattr(self, 'telegram_chat_id_backup', None))

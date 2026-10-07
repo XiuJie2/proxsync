@@ -48,6 +48,8 @@ class PvePluginSettingsForm(NetBoxModelForm):
             "telegram_chat_id",
             "telegram_chat_id_backup",
             "webhook_secret",
+            "backup_watch_tag",
+            "backup_ignore_tag",
             "default_cluster_name",
             "default_netbox_cluster",
             "default_site",
@@ -70,6 +72,14 @@ class PvePluginSettingsForm(NetBoxModelForm):
                 "Leave blank to route these into the chat ID above instead."
             ),
             "webhook_secret": "HMAC shared secret for PVE webhook signature verification",
+            "backup_watch_tag": (
+                "VM tag that opts a VM into backup-overdue monitoring (case-insensitive). "
+                "Leave blank to disable backup-overdue alerts entirely."
+            ),
+            "backup_ignore_tag": (
+                "VM tag that excludes a VM from backup-overdue checks entirely "
+                "(case-insensitive) — for VMs that don't need backups."
+            ),
             "state_db_path": "Path to SQLite state database for incremental sync",
         }
 

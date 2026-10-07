@@ -176,6 +176,12 @@ def build_runtime_config_from_db(cluster_name="default"):
             "node_offline_alert": True,
             "config_drift_alert": True,
             "tag_change_alert": True,
+            # Empty default (not "0N"/"NO-Backup") so an admin can deliberately
+            # blank these out in Settings to disable the check — get_plugin_config
+            # falls through its priority chain for "" the same as for unset, and a
+            # non-empty default param here would silently override that intent.
+            "backup_watch_tag": get_plugin_config("backup_watch_tag", ""),
+            "backup_ignore_tag": get_plugin_config("backup_ignore_tag", ""),
             "resource_alert": {
                 "enabled": True,
                 "memory_threshold": 85,

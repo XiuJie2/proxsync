@@ -64,6 +64,8 @@ def get_plugin_config(key, default=None):
         'telegram_bot_token': 'TELEGRAM_BOT_TOKEN',
         'telegram_chat_id': 'TELEGRAM_CHAT_ID',
         'telegram_chat_id_backup': 'TELEGRAM_CHAT_ID_BACKUP',
+        'backup_watch_tag': 'BACKUP_WATCH_TAG',
+        'backup_ignore_tag': 'BACKUP_IGNORE_TAG',
     }
 
     env_key = env_mapping.get(key)

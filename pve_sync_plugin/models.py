@@ -260,6 +260,15 @@ class PvePluginSettings(NetBoxModel):
     )
     webhook_secret = models.CharField(max_length=200, blank=True)
 
+    backup_watch_tag = models.CharField(
+        max_length=50, default="0N", blank=True,
+        help_text="VM 標籤：有此標籤的 VM 才會被監控備份逾期（留空則停用備份逾期監控）",
+    )
+    backup_ignore_tag = models.CharField(
+        max_length=50, default="NO-Backup", blank=True,
+        help_text="VM 標籤：有此標籤的 VM 一律忽略備份逾期檢查（不需要備份）",
+    )
+
     default_cluster_name = models.CharField(max_length=100, default="default")
     default_netbox_cluster = models.CharField(max_length=100, default="Proxmox Cluster")
     default_site = models.CharField(max_length=100, default="Main Datacenter")
