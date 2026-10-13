@@ -48,6 +48,8 @@ class OptimizedPVEToNetBoxSync:
             'node_mismatch_alerts': 0,
             'no_ip_alerts': 0,
             'backup_overdue_alerts': 0,
+            'ip_conflict_alerts': 0,
+            'power_state_alerts': 0,
             'total_vms': 0,
             'success_vms': 0,
             'elapsed_time': 0
@@ -175,6 +177,7 @@ class OptimizedPVEToNetBoxSync:
             'error': error_message
         }
         self.error_log.append(error_info)
+        self.stats['ip_conflict_alerts'] = self.stats.get('ip_conflict_alerts', 0) + 1
         vm_label = f"{vm_name} (ID: {vm_id})" if vm_id else vm_name
         message = f"""
 🚨 <b>PVE-NetBox 同步 IP 衝突警告</b>
@@ -267,6 +270,10 @@ class OptimizedPVEToNetBoxSync:
             extras.append(f"🌐 運行中但無 IP: {self.stats['no_ip_alerts']}")
         if self.stats.get('backup_overdue_alerts', 0) > 0:
             extras.append(f"🗄️ 備份逾期: {self.stats['backup_overdue_alerts']}")
+        if self.stats.get('ip_conflict_alerts', 0) > 0:
+            extras.append(f"🚨 IP 衝突: {self.stats['ip_conflict_alerts']}")
+        if self.stats.get('power_state_alerts', 0) > 0:
+            extras.append(f"⚠️ VM 意外關機: {self.stats['power_state_alerts']}")
         if extras:
             message += "\n🔍 檢測發現:\n" + "\n".join(extras)
         if self.error_log:
@@ -718,7 +725,8 @@ class OptimizedPVEToNetBoxSync:
     def assign_ip_to_interface(self, interface, ip_address: str, dns_name: str = None,
                                 is_vm_interface: bool = False, owner_name: str = None,
                                 vm_running: Optional[bool] = None,
-                                owner_id: Optional[str] = None) -> Optional[Any]:
+                                owner_id: Optional[str] = None,
+                                interface_enabled: Optional[bool] = None) -> Optional[Any]:
         try:
             if '/' not in ip_address:
                 ip_with_prefix = f"{ip_address}/24"
@@ -742,10 +750,11 @@ class OptimizedPVEToNetBoxSync:
                                 and existing_ip.assigned_object_type == assigned_object_type)
                 if (not already_here and is_vm_interface
                         and existing_ip.assigned_object_type == 'virtualization.vminterface'):
-                    # 兩台 VM 可能都設定了同一組 IP —— 依雙方開機狀態決定歸屬，
-                    # 而不是誰先同步到就直接搶走。
+                    # 兩台 VM 可能都設定了同一組 IP —— 依雙方開機狀態 + 網卡是否
+                    # 啟用決定歸屬，而不是誰先同步到就直接搶走。
                     if self._should_keep_existing_ip_owner(existing_ip, ip_with_prefix,
-                                                           owner_name, vm_running):
+                                                           owner_name, vm_running,
+                                                           interface_enabled):
                         return None
 
                 # 更新已存在的IP
@@ -802,23 +811,29 @@ class OptimizedPVEToNetBoxSync:
 
     def _should_keep_existing_ip_owner(self, existing_ip, ip_with_prefix: str,
                                        new_owner_name: Optional[str],
-                                       new_vm_running: Optional[bool]) -> bool:
-        """兩台 VM 都設定了同一組 IP 時，依雙方開機狀態決定歸屬。
+                                       new_vm_running: Optional[bool],
+                                       new_interface_enabled: Optional[bool] = None) -> bool:
+        """兩台 VM 都設定了同一組 IP 時，依雙方「開機狀態 + 網卡是否啟用」決定歸屬。
 
-        - 雙方都開機：真衝突，無法自動判斷該給誰，發 Telegram 通知交由人工
-          處理，保留原指派（回傳 True）。
-        - 一開一關：IP 歸開機中的那台。若目前擁有者正是開機中的那台，保留
-          不搬動；否則交回 False 讓呼叫端把 IP 轉移給開機中的新 VM。
-        - 雙方都關機：沒有立即的網路衝突，保留原指派，靜默不處理。
-        - 任一方開機狀態無法確認：保守起見視同衝突，通知後保留原指派。
+        一台 VM 要能真的在網路上用這個 IP，必須同時滿足：開機中，且用來設定
+        這個 IP 的那張網卡沒有被關閉（PVE 的 link_down）。兩者缺一視同未在使用：
+
+        - 雙方皆「開機且網卡啟用」：真衝突，無法自動判斷該給誰，發 Telegram
+          通知交由人工處理，保留原指派（回傳 True）。
+        - 恰有一方「開機且網卡啟用」：IP 歸那一台。若目前擁有者正是那一台，
+          保留不搬動；否則交回 False 讓呼叫端把 IP 轉移過去。
+        - 雙方皆非「開機且網卡啟用」：沒有立即的網路衝突，保留原指派，靜默不處理。
+        - 任一方狀態無法確認：保守起見視同衝突，通知後保留原指派。
 
         回傳 True 代表「不要搬動，保留原本的指派」。
         """
         old_vm_name = 'Unknown'
         old_running = None
+        old_iface_enabled = None
         old_vm_cached = None
         try:
             old_iface = self.nb_api.virtualization.interfaces.get(existing_ip.assigned_object_id)
+            old_iface_enabled = getattr(old_iface, 'enabled', None) if old_iface else None
             old_vm = getattr(old_iface, 'virtual_machine', None) if old_iface else None
             if old_vm:
                 old_vm_name = old_vm.name
@@ -830,19 +845,31 @@ class OptimizedPVEToNetBoxSync:
 
         new_owner_name = new_owner_name or 'Unknown'
 
-        if old_running is None or new_vm_running is None or (old_running and new_vm_running):
-            state = lambda r: '未知' if r is None else ('🟢 開機' if r else '🔴 關機')
+        def combine(running, iface_enabled):
+            if running is None or iface_enabled is None:
+                return None
+            return running and iface_enabled
+
+        old_active = combine(old_running, old_iface_enabled)
+        new_active = combine(new_vm_running, new_interface_enabled)
+
+        if old_active is None or new_active is None or (old_active and new_active):
+            state = lambda r, e: (
+                '未知' if r is None or e is None
+                else ('🟢 開機・網卡啟用' if (r and e) else ('🟢 開機・網卡已停用' if r else '🔴 關機'))
+            )
             msg = (
                 f"🚨 <b>IP 位址衝突（兩台 VM 設定了相同 IP）</b>\n\n"
                 f"🌐 IP: <code>{ip_with_prefix}</code>\n\n"
-                f"🖥️ {old_vm_name}: {state(old_running)}\n"
-                f"🖥️ {new_owner_name}: {state(new_vm_running)}\n\n"
+                f"🖥️ {old_vm_name}: {state(old_running, old_iface_enabled)}\n"
+                f"🖥️ {new_owner_name}: {state(new_vm_running, new_interface_enabled)}\n\n"
                 f"⚠️ 無法自動判斷歸屬，請人工確認後手動處理。"
             )
             self.send_telegram_notification(msg)
+            self.stats['ip_conflict_alerts'] = self.stats.get('ip_conflict_alerts', 0) + 1
             return True
 
-        if new_vm_running and not old_running:
+        if new_active and not old_active:
             # NetBox 不允許在 IP 仍被設為某物件的 Primary IP 時重新指派它的
             # assigned_object（會丟 400：Cannot reassign IP address while it
             # is designated as the primary IP for the parent object）。這在
@@ -851,10 +878,10 @@ class OptimizedPVEToNetBoxSync:
             # 會被擋下、整個落入「無法處理」的衝突通知分支。
             if old_vm_cached is not None:
                 self._clear_stale_primary_ip(old_vm_cached, existing_ip)
-            print(f"  🔁 IP {ip_with_prefix} 原屬已關機的 {old_vm_name}，轉移給開機中的 {new_owner_name}")
+            print(f"  🔁 IP {ip_with_prefix} 原屬 {old_vm_name}（未在使用），轉移給 {new_owner_name}（開機且網卡啟用）")
             return False
 
-        # old_running and not new_vm_running：IP 應留給開機中的原擁有者
+        # old_active and not new_active：IP 應留給正在使用中的原擁有者
         return True
 
     def _clear_stale_primary_ip(self, vm_obj, ip_obj) -> None:
@@ -1205,7 +1232,8 @@ class OptimizedPVEToNetBoxSync:
                                 vm_interface, full_addr, f"{vm.name}.local",
                                 is_vm_interface=True, owner_name=vm.name,
                                 vm_running=(vm_status == 'running'),
-                                owner_id=getattr(vm, 'serial', None)
+                                owner_id=getattr(vm, 'serial', None),
+                                interface_enabled=enabled
                             )
                             if ip_obj:
                                 # 一台 VM 可能同時有多個 IPv4（如 172.17.*.* 與 172.20.*.*），
@@ -2048,6 +2076,7 @@ class OptimizedPVEToNetBoxSync:
 
 ❌ 虛擬機應處於開機狀態，請立即檢查。
 """
+                self.stats['power_state_alerts'] += 1
                 self.send_telegram_notification(message)
             elif first_tag == '0ff' and vm_status == 'running':
                 message = f"""
@@ -2060,6 +2089,7 @@ class OptimizedPVEToNetBoxSync:
 
 ⚠️ 虛擬機應處於關機狀態，請確認開機原因。
 """
+                self.stats['power_state_alerts'] += 1
                 self.send_telegram_notification(message)
 
         if tag_names:
@@ -2141,11 +2171,13 @@ class OptimizedPVEToNetBoxSync:
             self.detect_config_drift(int(vm_id), original_vm_name, vm_config, tag_names,
                                      network_interfaces, current_node=node_name, last_config=last_config)
             cached_vm = self.nb_cache['virtual_machines_by_serial'].get(f"{vm_id}::{cluster['id']}")
-            if not force and cached_vm is not None and cached_vm.name != vm_name:
-                # PVE 配置沒變但 NetBox 記錄的名稱對不上，代表這筆記錄被外部改寫過
-                # （例如被另一個叢集的同步覆蓋）。不能走增量跳過，要完整重寫回來。
-                print(f"  ⚠️  VM {original_vm_name} 在 NetBox 的名稱為 {cached_vm.name}，強制完整同步修正")
-                force = True
+            # 注意：這裡故意不會因為 cached_vm.name != vm_name 就強制 force=True。
+            # vm_name 是 get_unique_vm_name() 依「目前」cache 狀態算出的同名消歧結果，
+            # 若兩個 PVE 叢集誤同步到同一個 NetBox 叢集（vmid 相同但其實是不同 VM），
+            # 強制改名反而會撞上對方當下佔用的名稱，產生 "name must be unique per
+            # cluster" 400 錯誤且每次同步都重複發生。這種跨叢集衝突該在叢集設定層
+            # 解決（PveClusterConfigForm 已禁止兩個 PVE 叢集共用同一個 NetBox 叢集），
+            # 而不是在這裡硬改名字。
             if not force and not self.should_sync_vm(int(vm_id), vm_config, tag_names, network_interfaces,
                                                      last_config=last_config):
                 if cached_vm is None:
