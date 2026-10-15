@@ -48,12 +48,30 @@ clusters_item = PluginMenuItem(
 
 backup_status_item = PluginMenuItem(
     link="plugins:pve_sync_plugin:pvebackupstatus_list",
-    link_text="Backup Status",
+    link_text="Backup Status (PBS)",
+)
+
+veeam_backup_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:veeambackupstatus_list",
+    link_text="Backup Status (Veeam)",
 )
 
 settings_item = PluginMenuItem(
     link="plugins:pve_sync_plugin:settings",
     link_text="Settings",
+)
+
+veeam_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:veeamserverconfig_list",
+    link_text="Veeam Servers",
+    buttons=(
+        PluginMenuButton(
+            "plugins:pve_sync_plugin:veeamserverconfig_add",
+            "Add",
+            "mdi mdi-plus-thick",
+            ButtonColorChoices.GREEN,
+        ),
+    ),
 )
 
 pbs_item = PluginMenuItem(
@@ -93,7 +111,7 @@ menu = PluginMenu(
         ),
         (
             "Data Protection",
-            (backup_status_item,),
+            (backup_status_item, veeam_backup_item),
         ),
         (
             "VM Operations",
@@ -101,7 +119,7 @@ menu = PluginMenu(
         ),
         (
             "Configuration",
-            (clusters_item, pbs_item, settings_item),
+            (clusters_item, pbs_item, veeam_item, settings_item),
         ),
     ),
     icon_class="mdi mdi-hexagon-multiple",

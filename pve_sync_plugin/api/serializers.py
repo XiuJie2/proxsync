@@ -11,6 +11,8 @@ from pve_sync_plugin.models import (
     PveSyncJob,
     PveVmTaskLog,
     PveWebhookEvent,
+    VeeamBackupStatus,
+    VeeamServerConfig,
     VmProvisioningLog,
 )
 
@@ -192,5 +194,45 @@ class PveVmTaskLogSerializer(NetBoxModelSerializer):
             "upid", "vmid", "vm_name", "cluster_name", "node",
             "task_type", "operator", "start_time", "end_time",
             "status", "notified_telegram",
+            "created", "last_updated",
+        ]
+
+
+class VeeamServerConfigSerializer(NetBoxModelSerializer):
+    url = serializers.HyperlinkedIdentityField(
+        view_name="plugins-api:pve_sync_plugin-api:veeamserverconfig-detail",
+    )
+
+    class Meta:
+        model = VeeamServerConfig
+        fields = [
+            "id", "url", "display",
+            "name", "description", "host", "winrm_port", "winrm_use_https", "winrm_verify_ssl",
+            "username", "password", "netbox_device", "netbox_vm", "enabled", "sync_schedule",
+            "last_sync", "last_sync_status", "consecutive_failures", "server_info", "job_summary",
+            "created", "last_updated",
+        ]
+        read_only_fields = ["last_sync", "last_sync_status", "consecutive_failures", "server_info", "job_summary"]
+        # Never expose credentials in API responses
+        extra_kwargs = {
+            "password": {"write_only": True},
+        }
+
+
+class VeeamBackupStatusSerializer(NetBoxModelSerializer):
+    url = serializers.HyperlinkedIdentityField(
+        view_name="plugins-api:pve_sync_plugin-api:veeambackupstatus-detail",
+    )
+    backup_age_days = serializers.IntegerField(read_only=True)
+    is_stale = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = VeeamBackupStatus
+        fields = [
+            "id", "url", "display",
+            "vm", "server", "job_name", "last_result",
+            "last_run_start", "last_run_end", "last_run_reason",
+            "last_restore_point", "restore_point_type", "restore_point_consistent",
+            "veeam_object_id", "backup_age_days", "is_stale",
             "created", "last_updated",
         ]

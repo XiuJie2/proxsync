@@ -33,6 +33,9 @@ dependencies = [
     "urllib3>=1.26.0",
     "PyYAML>=5.4.0",
     "watchdog>=2.0.0",
+    # Veeam B&R over WinRM; >=0.5 uses pyspnego, which still does NTLM on
+    # OpenSSL 3 (MD4 disabled) where the old ntlm-auth backend fails.
+    "pywinrm>=0.5",
 ]
 
 [project.urls]

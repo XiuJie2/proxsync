@@ -81,7 +81,7 @@ def pve_backup_status(vm):
     """
     try:
         backup = PveBackupStatus.objects.get(vm=vm)
-        if backup.backup_age_days and backup.backup_age_days > 7:
+        if backup.last_backup and backup.is_stale:
             return mark_safe(
                 f'<span class="badge text-bg-danger" title="最后备份: {backup.last_backup}">'
                 f'备份过期 ({backup.backup_age_days}天)</span>'

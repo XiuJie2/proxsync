@@ -68,7 +68,10 @@
 {% if object.status == "success" %}
   <div class="alert alert-success" role="alert">
     <i class="mdi mdi-check-circle"></i>
-    {% if object.is_pbs_job %}
+    {% if object.is_veeam_job %}
+      Veeam 同步成功完成！共讀取 <strong>{{ object.details.veeam_jobs|default:0 }}</strong> 個備份任務，
+      更新 <strong>{{ object.details.backup_updated|default:0 }}</strong> 台 VM 的備份狀態，耗時 {{ object.duration|floatformat:0 }} 秒。
+    {% elif object.is_pbs_job %}
       PBS 同步成功完成！備份記錄更新 <strong>{{ object.details.backup_updated|default:0 }}</strong> 筆，耗時 {{ object.duration|floatformat:0 }} 秒。
     {% else %}
       同步成功完成！共處理 <strong>{{ object.total_vms }}</strong> 台 VM，
@@ -191,6 +194,62 @@
               {% if object.details.backup_skipped is not None %}
                 {{ object.details.backup_skipped }}
               {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% elif object.is_veeam_job %}
+          <tr>
+            <th scope="row">Backup Jobs</th>
+            <td>
+              {% if object.details.veeam_jobs is not None %}{{ object.details.veeam_jobs }}
+              {% elif object.status == "running" %}<span class="text-muted">同步完成後顯示</span>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Failed / Warning Jobs</th>
+            <td>
+              {% if object.details.veeam_failed_jobs %}
+                <span class="text-danger">{{ object.details.veeam_failed_jobs|length }}</span>
+                <ul class="mb-0 small">
+                  {% for item in object.details.veeam_failed_jobs %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+                <div class="small text-muted">Telegram 告警發送 {{ object.details.veeam_alerts_sent|default:0 }} 則（同一次執行只通知一次）</div>
+              {% else %}0{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Backed-up Objects on Veeam</th>
+            <td>{{ object.details.veeam_objects|default:"—" }}</td>
+          </tr>
+          <tr>
+            <th scope="row">VM Backup Records Updated</th>
+            <td>
+              {% if object.details.backup_updated is not None %}
+                <span class="text-success">{{ object.details.backup_updated }}</span>
+                {% if object.details.backup_removed %}<span class="text-muted small">（移除 {{ object.details.backup_removed }} 筆已不存在的記錄）</span>{% endif %}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Ambiguous (Skipped)</th>
+            <td>
+              {% if object.details.backup_ambiguous %}
+                <span class="text-warning">{{ object.details.backup_ambiguous|length }}</span>
+                <ul class="mb-0 small">
+                  {% for item in object.details.backup_ambiguous %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+              {% else %}0{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">No VM Match (Skipped)</th>
+            <td>
+              {% if object.details.backup_unmatched %}
+                <span class="text-warning">{{ object.details.backup_unmatched|length }}</span>
+                <ul class="mb-0 small">
+                  {% for item in object.details.backup_unmatched %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+              {% else %}0{% endif %}
             </td>
           </tr>
         {% else %}

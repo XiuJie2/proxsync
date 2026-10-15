@@ -1,6 +1,10 @@
 """FilterSets for PVE Sync plugin models (used by list views and API)."""
 
+import datetime
+
 import django_filters
+from django.db.models import Q
+from django.utils import timezone
 
 from netbox.filtersets import NetBoxModelFilterSet
 
@@ -10,6 +14,7 @@ from .choices import (
     SyncJobStatusChoices,
     SyncJobTriggerChoices,
     SyncScheduleChoices,
+    VeeamResultChoices,
     VmTaskTypeChoices,
     WebhookEventChoices,
 )
@@ -21,6 +26,8 @@ from .models import (
     PveSyncJob,
     PveVmTaskLog,
     PveWebhookEvent,
+    VeeamBackupStatus,
+    VeeamServerConfig,
 )
 
 
@@ -160,3 +167,58 @@ class PveBackupStatusFilterSet(NetBoxModelFilterSet):
         if not value.strip():
             return queryset
         return queryset.filter(vm__name__icontains=value)
+
+
+class VeeamServerConfigFilterSet(NetBoxModelFilterSet):
+    """Filter Veeam server configs by name and enabled state."""
+
+    enabled = django_filters.BooleanFilter()
+
+    class Meta:
+        model = VeeamServerConfig
+        fields = ["id", "name", "enabled"]
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(
+            Q(name__icontains=value) | Q(host__icontains=value) | Q(description__icontains=value)
+        )
+
+
+class VeeamBackupStatusFilterSet(NetBoxModelFilterSet):
+    """Filter Veeam backup statuses by server, result and staleness."""
+
+    server_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=VeeamServerConfig.objects.all(),
+    )
+    last_result = django_filters.MultipleChoiceFilter(choices=VeeamResultChoices.choices)
+    stale = django_filters.BooleanFilter(method="filter_stale")
+    problem = django_filters.BooleanFilter(method="filter_problem")
+
+    class Meta:
+        model = VeeamBackupStatus
+        fields = ["id", "vm_id", "last_result", "job_name"]
+
+    @staticmethod
+    def _stale_q():
+        from .utils import get_threshold
+
+        days = get_threshold("backup_overdue_days_veeam")
+        stale = Q(last_restore_point__isnull=True)
+        if days:
+            stale |= Q(last_restore_point__lt=timezone.now() - datetime.timedelta(days=days))
+        return stale
+
+    def filter_stale(self, queryset, name, value):
+        stale = self._stale_q()
+        return queryset.filter(stale) if value else queryset.exclude(stale)
+
+    def filter_problem(self, queryset, name, value):
+        problem = self._stale_q() | Q(last_result=VeeamResultChoices.FAILED)
+        return queryset.filter(problem) if value else queryset.exclude(problem)
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(Q(vm__name__icontains=value) | Q(job_name__icontains=value))

@@ -40,6 +40,17 @@
         <div class="card-body">
           {% render_field form.backup_watch_tag %}
           {% render_field form.backup_ignore_tag %}
+          {% render_field form.backup_overdue_days_pbs %}
+          {% render_field form.backup_overdue_days_veeam %}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">Backup Server Alerts</h5>
+        <div class="card-body">
+          {% render_field form.veeam_job_not_run_hours %}
+          {% render_field form.veeam_repo_free_percent %}
+          {% render_field form.sync_failure_alert_count %}
         </div>
       </div>
 

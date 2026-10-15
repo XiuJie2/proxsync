@@ -10,7 +10,7 @@ from django.urls import path
 from netbox.views.generic import ObjectChangeLogView
 
 from . import views
-from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveVmTaskLog, PveWebhookEvent, VmProvisioningLog
+from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveVmTaskLog, PveWebhookEvent, VeeamBackupStatus, VeeamServerConfig, VmProvisioningLog
 
 app_name = "pve_sync_plugin"
 
@@ -167,6 +167,41 @@ urlpatterns = [
         ObjectChangeLogView.as_view(),
         name="pbsserverconfig_changelog",
         kwargs={"model": PbsServerConfig},
+    ),
+
+    # --- VeeamServerConfig CRUD ---
+    path("veeam/", views.VeeamServerConfigListView.as_view(), name="veeamserverconfig_list"),
+    path("veeam/add/", views.VeeamServerConfigEditView.as_view(), name="veeamserverconfig_add"),
+    path("veeam/<int:pk>/", views.VeeamServerConfigView.as_view(), name="veeamserverconfig"),
+    path("veeam/<int:pk>/edit/", views.VeeamServerConfigEditView.as_view(), name="veeamserverconfig_edit"),
+    path("veeam/<int:pk>/delete/", views.VeeamServerConfigDeleteView.as_view(), name="veeamserverconfig_delete"),
+    path("veeam/delete/", views.VeeamServerConfigBulkDeleteView.as_view(), name="veeamserverconfig_bulk_delete"),
+    path("veeam/<int:veeam_pk>/sync/", views.TriggerVeeamSyncView.as_view(), name="trigger-veeam-sync"),
+    path(
+        "veeam/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="veeamserverconfig_changelog",
+        kwargs={"model": VeeamServerConfig},
+    ),
+
+    # --- VeeamBackupStatus ---
+    path("veeam-backups/", views.VeeamBackupStatusListView.as_view(), name="veeambackupstatus_list"),
+    path("veeam-backups/<int:pk>/", views.VeeamBackupStatusView.as_view(), name="veeambackupstatus"),
+    path(
+        "veeam-backups/<int:pk>/delete/",
+        views.VeeamBackupStatusDeleteView.as_view(),
+        name="veeambackupstatus_delete",
+    ),
+    path(
+        "veeam-backups/delete/",
+        views.VeeamBackupStatusBulkDeleteView.as_view(),
+        name="veeambackupstatus_bulk_delete",
+    ),
+    path(
+        "veeam-backups/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="veeambackupstatus_changelog",
+        kwargs={"model": VeeamBackupStatus},
     ),
 
     # --- PveDriftEvent ---

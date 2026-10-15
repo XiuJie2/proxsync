@@ -85,3 +85,48 @@ def clear_plugin_config_cache():
     to ensure subsequent reads pick up the new values.
     """
     cache.delete(_SETTINGS_CACHE_KEY)
+
+
+# Defaults for the backup-monitoring thresholds editable on the Settings page.
+BACKUP_THRESHOLD_DEFAULTS = {
+    "backup_overdue_days_pbs": 7,
+    "backup_overdue_days_veeam": 7,
+    "veeam_job_not_run_hours": 26,
+    "veeam_repo_free_percent": 10,
+    "sync_failure_alert_count": 2,
+}
+
+
+def get_threshold(key):
+    """Return an integer backup-monitoring threshold (0 = check disabled)."""
+    default = BACKUP_THRESHOLD_DEFAULTS[key]
+    try:
+        return int(get_plugin_config(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def send_backup_alert(text):
+    """Send an HTML Telegram message to the backup-alert chat (falls back to the
+    general chat). Returns True when Telegram accepted it, None when Telegram
+    is not configured."""
+    import logging
+
+    import requests
+
+    token = get_plugin_config("telegram_bot_token", "")
+    chat_id = get_plugin_config("telegram_chat_id_backup", "") or get_plugin_config("telegram_chat_id", "")
+    if not token or not chat_id:
+        return None
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return True
+        logging.getLogger(__name__).warning("Telegram alert failed: HTTP %s", resp.status_code)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Telegram alert failed: %s", exc)
+    return False

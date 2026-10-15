@@ -32,6 +32,17 @@
           </td>
         </tr>
         <tr>
+          <th scope="row">NetBox Device</th>
+          <td>
+            {% if object.netbox_device %}
+              <a href="{{ object.netbox_device.get_absolute_url }}">{{ object.netbox_device }}</a>
+              {% if object.netbox_device.rack %}<div class="small text-muted">{{ object.netbox_device.rack }}{% if object.netbox_device.position %} / U{{ object.netbox_device.position|floatformat:0 }}{% endif %}</div>{% endif %}
+            {% else %}
+              <span class="text-muted">—（同步時依節點名稱自動關聯）</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
           <th scope="row">Last Sync</th>
           <td>{% if object.last_sync %}{{ object.last_sync|date:"Y-m-d H:i" }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
         </tr>
@@ -49,6 +60,12 @@
             {% endif %}
           </td>
         </tr>
+        {% if object.consecutive_failures %}
+        <tr>
+          <th scope="row">Consecutive Failures</th>
+          <td><span class="badge text-bg-danger">{{ object.consecutive_failures }}</span>{% if object.failure_alerted %} <span class="small text-muted">已發送告警</span>{% endif %}</td>
+        </tr>
+        {% endif %}
       </table>
     </div>
     {% if object.enabled %}

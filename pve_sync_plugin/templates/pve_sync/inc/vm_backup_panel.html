@@ -1,0 +1,41 @@
+<div class="card">
+  <h5 class="card-header"><i class="mdi mdi-backup-restore"></i> 備份狀態</h5>
+  <table class="table table-hover attr-table mb-0">
+    <tr>
+      <th scope="row">PBS</th>
+      <td>
+        {% if pbs_status and pbs_status.last_backup %}
+          <a href="{{ pbs_status.get_absolute_url }}">{{ pbs_status.last_backup|date:"Y-m-d H:i" }}</a>
+          {% if pbs_status.is_stale %}
+            <span class="badge text-bg-danger">逾期 {{ pbs_status.backup_age_days }} 天</span>
+          {% else %}
+            <span class="badge text-bg-success">正常</span>
+          {% endif %}
+        {% else %}
+          <span class="text-muted">無備份記錄</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% for s in veeam_statuses %}
+    <tr>
+      <th scope="row">Veeam<div class="small text-muted fw-normal">{{ s.server.name }}</div></th>
+      <td>
+        {% if s.last_restore_point %}
+          <a href="{{ s.get_absolute_url }}">{{ s.last_restore_point|date:"Y-m-d H:i" }}</a>
+        {% else %}
+          <a href="{{ s.get_absolute_url }}" class="text-muted">無還原點</a>
+        {% endif %}
+        <span class="badge text-bg-{{ s.get_last_result_color }}">{{ s.get_last_result_display }}</span>
+        {% if s.is_stale and s.last_restore_point %}<span class="badge text-bg-danger">逾期 {{ s.backup_age_days }} 天</span>{% endif %}
+        {% if s.job_name %}<div class="small text-muted">{{ s.job_name }}</div>{% endif %}
+        {% if s.last_run_reason %}<div class="small text-danger">{{ s.last_run_reason|truncatechars:200 }}</div>{% endif %}
+      </td>
+    </tr>
+    {% empty %}
+    <tr>
+      <th scope="row">Veeam</th>
+      <td><span class="text-muted">無備份記錄</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>

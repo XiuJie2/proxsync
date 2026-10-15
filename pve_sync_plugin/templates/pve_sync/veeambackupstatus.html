@@ -1,0 +1,34 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Veeam Backup</h5>
+      <table class="table table-hover attr-table">
+        <tr><th scope="row">Virtual Machine</th><td><a href="{{ object.vm.get_absolute_url }}">{{ object.vm.name }}</a></td></tr>
+        <tr><th scope="row">Veeam Server</th><td><a href="{{ object.server.get_absolute_url }}">{{ object.server.name }}</a></td></tr>
+        <tr><th scope="row">Job</th><td>{{ object.job_name|default:"—" }}</td></tr>
+        <tr><th scope="row">Last Result</th><td><span class="badge text-bg-{{ object.get_last_result_color }}">{{ object.get_last_result_display }}</span></td></tr>
+        <tr><th scope="row">Last Run</th><td>
+          {% if object.last_run_start %}{{ object.last_run_start|date:"Y-m-d H:i" }}{% if object.last_run_end %} → {{ object.last_run_end|date:"H:i" }}{% endif %}{% else %}—{% endif %}
+        </td></tr>
+        <tr><th scope="row">Reason</th><td>{{ object.last_run_reason|default:"—" }}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Latest Restore Point</h5>
+      <table class="table table-hover attr-table">
+        <tr><th scope="row">Created</th><td>{% if object.last_restore_point %}{{ object.last_restore_point|date:"Y-m-d H:i" }}{% else %}Never{% endif %}</td></tr>
+        <tr><th scope="row">Age</th><td>{% if object.backup_age_days is not None %}{{ object.backup_age_days }} days{% if object.is_stale %} <span class="badge text-bg-warning">Stale</span>{% endif %}{% else %}—{% endif %}</td></tr>
+        <tr><th scope="row">Type</th><td>{{ object.restore_point_type|default:"—" }}</td></tr>
+        <tr><th scope="row">Consistent</th><td>{% if object.restore_point_consistent is None %}—{% else %}{{ object.restore_point_consistent|yesno:"Yes,No" }}{% endif %}</td></tr>
+        <tr><th scope="row">Veeam Object ID</th><td><code>{{ object.veeam_object_id|default:"—" }}</code></td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

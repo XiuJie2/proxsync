@@ -32,6 +32,8 @@ from .filtersets import (
     PveSyncJobFilterSet,
     PveVmTaskLogFilterSet,
     PveWebhookEventFilterSet,
+    VeeamBackupStatusFilterSet,
+    VeeamServerConfigFilterSet,
 )
 from .forms import (
     PbsServerConfigFilterForm,
@@ -42,6 +44,9 @@ from .forms import (
     PvePluginSettingsForm,
     PveSyncJobFilterForm,
     PveWebhookEventFilterForm,
+    VeeamBackupStatusFilterForm,
+    VeeamServerConfigFilterForm,
+    VeeamServerConfigForm,
 )
 from .models import (
     PbsServerConfig,
@@ -52,6 +57,8 @@ from .models import (
     PveSyncJob,
     PveVmTaskLog,
     PveWebhookEvent,
+    VeeamBackupStatus,
+    VeeamServerConfig,
     VmProvisioningLog,
 )
 from .tables import (
@@ -62,10 +69,12 @@ from .tables import (
     PveSyncJobTable,
     PveVmTaskLogTable,
     PveWebhookEventTable,
+    VeeamBackupStatusTable,
+    VeeamServerConfigTable,
     VmProvisioningLogTable,
 )
 from .tasks import enqueue_webhook_event
-from .utils import get_plugin_config
+from .utils import get_plugin_config, get_threshold
 from .view_helpers import (
     create_and_enqueue_sync_job,
     has_active_sync_job,
@@ -84,7 +93,26 @@ class DashboardView(PermissionRequiredMixin, View):
 
     def get(self, request):
         clusters = PveClusterConfig.objects.filter(enabled=True).select_related("netbox_cluster", "netbox_site")
-        pbs_servers = PbsServerConfig.objects.filter(enabled=True).select_related("netbox_site")
+        pbs_servers = PbsServerConfig.objects.filter(enabled=True).select_related("netbox_site", "netbox_device")
+        pbs_overdue_days = get_threshold("backup_overdue_days_pbs")
+        veeam_overdue_days = get_threshold("backup_overdue_days_veeam")
+        # 0 disables the check: use a cutoff no restore point can be older than.
+        stale_cutoff = (
+            timezone.now() - timezone.timedelta(days=veeam_overdue_days)
+            if veeam_overdue_days else timezone.now() - timezone.timedelta(days=36500)
+        )
+        veeam_servers = VeeamServerConfig.objects.filter(enabled=True).select_related(
+            "netbox_device", "netbox_vm"
+        ).annotate(
+            vm_count=Count("backup_statuses", distinct=True),
+            vm_problem_count=Count(
+                "backup_statuses",
+                filter=Q(backup_statuses__last_restore_point__isnull=True)
+                | Q(backup_statuses__last_restore_point__lt=stale_cutoff)
+                | Q(backup_statuses__last_result="failed"),
+                distinct=True,
+            ),
+        )
 
         # Collect all NetBox cluster IDs linked to enabled PVE configs
         nb_cluster_ids = [c.netbox_cluster_id for c in clusters if c.netbox_cluster_id]
@@ -130,7 +158,12 @@ class DashboardView(PermissionRequiredMixin, View):
         # Alerts
         pending_webhooks = PveWebhookEvent.objects.filter(processed=False).count()
         backup_alerts = PveBackupStatus.objects.filter(
-            last_backup__lt=timezone.now() - timezone.timedelta(days=7)
+            last_backup__lt=timezone.now() - timezone.timedelta(days=pbs_overdue_days)
+        ).count() if pbs_overdue_days else 0
+        veeam_backup_alerts = VeeamBackupStatus.objects.filter(
+            Q(last_restore_point__isnull=True)
+            | Q(last_restore_point__lt=stale_cutoff)
+            | Q(last_result="failed")
         ).count()
         offline_node_list = (
             node_qs.exclude(status="active")
@@ -146,6 +179,10 @@ class DashboardView(PermissionRequiredMixin, View):
         context = {
             "clusters": clusters,
             "pbs_servers": pbs_servers,
+            "veeam_servers": veeam_servers,
+            "veeam_backup_alerts": veeam_backup_alerts,
+            "pbs_overdue_days": pbs_overdue_days,
+            "veeam_overdue_days": veeam_overdue_days,
             "total_nodes": total_nodes,
             "online_nodes": online_nodes,
             "offline_nodes": offline_nodes,
@@ -303,6 +340,107 @@ class TriggerPbsSyncView(PermissionRequiredMixin, View):
         return redirect(
             request.POST.get("return_url") or reverse("plugins:pve_sync_plugin:dashboard")
         )
+
+
+# ============================================================================
+# Veeam Views
+# ============================================================================
+
+class VeeamServerConfigListView(generic.ObjectListView):
+    queryset = VeeamServerConfig.objects.all()
+    table = VeeamServerConfigTable
+    filterset = VeeamServerConfigFilterSet
+    filterset_form = VeeamServerConfigFilterForm
+
+
+class VeeamServerConfigView(generic.ObjectView):
+    queryset = VeeamServerConfig.objects.all()
+    template_name = "pve_sync/veeamserverconfig.html"
+
+    def get_extra_context(self, request, instance):
+        from .veeam import parse_time
+
+        statuses = instance.backup_statuses.select_related("vm")
+        from .utils import get_threshold
+
+        jobs = [
+            dict(job, start_dt=parse_time(job.get("start")), end_dt=parse_time(job.get("end")))
+            for job in instance.job_summary or []
+        ]
+        return {
+            "jobs": jobs,
+            "veeam_overdue_days": get_threshold("backup_overdue_days_veeam"),
+            "not_run_hours": get_threshold("veeam_job_not_run_hours"),
+            "repo_free_percent": get_threshold("veeam_repo_free_percent"),
+            "backup_count": statuses.count(),
+            "problem_statuses": [s for s in statuses if s.has_problem],
+        }
+
+
+class VeeamServerConfigEditView(generic.ObjectEditView):
+    queryset = VeeamServerConfig.objects.all()
+    form = VeeamServerConfigForm
+
+
+class VeeamServerConfigDeleteView(generic.ObjectDeleteView):
+    queryset = VeeamServerConfig.objects.all()
+
+
+class VeeamServerConfigBulkDeleteView(generic.BulkDeleteView):
+    queryset = VeeamServerConfig.objects.all()
+    table = VeeamServerConfigTable
+
+
+class TriggerVeeamSyncView(PermissionRequiredMixin, View):
+    """Web GUI endpoint for manually triggering a Veeam sync."""
+
+    permission_required = "pve_sync_plugin.add_pvesyncjob"
+
+    def post(self, request, veeam_pk):
+        server = get_object_or_404(VeeamServerConfig, pk=veeam_pk, enabled=True)
+        cluster_name = f"veeam:{server.name}"
+
+        if has_active_sync_job(cluster_name):
+            messages.warning(request, f"Veeam sync for {server.name} is already running.")
+            return redirect(request.POST.get("return_url") or reverse("plugins:pve_sync_plugin:dashboard"))
+
+        try:
+            job = PveSyncJob.objects.create(
+                cluster_name=cluster_name,
+                status="pending",
+                trigger="manual",
+                triggered_by=request.user if request.user.is_authenticated else None,
+                details={"veeam_server_id": server.pk, "veeam_server_name": server.name},
+            )
+            from .tasks import enqueue_veeam_sync
+            enqueue_veeam_sync(job, server)
+            messages.success(request, f"Veeam sync for {server.name} queued as job #{job.id}.")
+        except Exception as exc:
+            messages.error(request, f"Unable to start Veeam sync: {exc}")
+        return redirect(
+            request.POST.get("return_url") or reverse("plugins:pve_sync_plugin:dashboard")
+        )
+
+
+class VeeamBackupStatusListView(generic.ObjectListView):
+    queryset = VeeamBackupStatus.objects.select_related("vm", "server")
+    table = VeeamBackupStatusTable
+    filterset = VeeamBackupStatusFilterSet
+    filterset_form = VeeamBackupStatusFilterForm
+
+
+class VeeamBackupStatusView(generic.ObjectView):
+    queryset = VeeamBackupStatus.objects.select_related("vm", "server")
+    template_name = "pve_sync/veeambackupstatus.html"
+
+
+class VeeamBackupStatusDeleteView(generic.ObjectDeleteView):
+    queryset = VeeamBackupStatus.objects.all()
+
+
+class VeeamBackupStatusBulkDeleteView(generic.BulkDeleteView):
+    queryset = VeeamBackupStatus.objects.all()
+    table = VeeamBackupStatusTable
 
 
 # ============================================================================

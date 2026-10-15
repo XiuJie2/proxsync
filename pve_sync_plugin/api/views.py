@@ -11,6 +11,8 @@ from pve_sync_plugin.filtersets import (
     PveClusterConfigFilterSet,
     PveSyncJobFilterSet,
     PveWebhookEventFilterSet,
+    VeeamBackupStatusFilterSet,
+    VeeamServerConfigFilterSet,
 )
 from pve_sync_plugin.models import (
     PveBackupStatus,
@@ -19,6 +21,8 @@ from pve_sync_plugin.models import (
     PveSyncJob,
     PveVmTaskLog,
     PveWebhookEvent,
+    VeeamBackupStatus,
+    VeeamServerConfig,
     VmProvisioningLog,
 )
 
@@ -29,6 +33,8 @@ from .serializers import (
     PveSyncJobSerializer,
     PveVmTaskLogSerializer,
     PveWebhookEventSerializer,
+    VeeamBackupStatusSerializer,
+    VeeamServerConfigSerializer,
     VmProvisioningLogSerializer,
 )
 
@@ -106,3 +112,15 @@ class VmProvisioningLogViewSet(NetBoxModelViewSet):
 class PveVmTaskLogViewSet(NetBoxModelViewSet):
     queryset = PveVmTaskLog.objects.order_by("-start_time")
     serializer_class = PveVmTaskLogSerializer
+
+
+class VeeamServerConfigViewSet(NetBoxModelViewSet):
+    queryset = VeeamServerConfig.objects.all()
+    serializer_class = VeeamServerConfigSerializer
+    filterset_class = VeeamServerConfigFilterSet
+
+
+class VeeamBackupStatusViewSet(NetBoxModelViewSet):
+    queryset = VeeamBackupStatus.objects.select_related("vm", "server")
+    serializer_class = VeeamBackupStatusSerializer
+    filterset_class = VeeamBackupStatusFilterSet

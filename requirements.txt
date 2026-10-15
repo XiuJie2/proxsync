@@ -5,6 +5,7 @@ pynetbox>=6.0.0
 proxmoxer>=2.0.0
 requests>=2.25.0
 urllib3>=1.26.0
+pywinrm>=0.5  # Veeam B&R over WinRM (NTLM via pyspnego)
 
 # Configuration management
 PyYAML>=5.4.0

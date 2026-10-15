@@ -12,6 +12,8 @@ from .models import (
     PveSyncJob,
     PveVmTaskLog,
     PveWebhookEvent,
+    VeeamBackupStatus,
+    VeeamServerConfig,
     VmProvisioningLog,
 )
 
@@ -163,6 +165,7 @@ class PbsServerConfigTable(NetBoxTable):
     pbs_node_name = tables.Column()
     enabled = columns.BooleanColumn()
     netbox_site = tables.Column(linkify=True)
+    netbox_device = tables.Column(linkify=True, verbose_name="NetBox Device")
     last_sync = columns.DateTimeColumn()
     last_sync_status = tables.Column()
     actions = columns.ActionsColumn(actions=("edit", "delete", "changelog"))
@@ -176,6 +179,7 @@ class PbsServerConfigTable(NetBoxTable):
             "pbs_node_name",
             "enabled",
             "netbox_site",
+            "netbox_device",
             "last_sync",
             "last_sync_status",
         )
@@ -184,7 +188,7 @@ class PbsServerConfigTable(NetBoxTable):
             "pbs_host",
             "pbs_node_name",
             "enabled",
-            "netbox_site",
+            "netbox_device",
             "last_sync",
             "last_sync_status",
         )
@@ -276,6 +280,94 @@ class PveBackupStatusTable(NetBoxTable):
             "vm",
             "backup_status",
             "last_backup",
+            "backup_age_days",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Veeam
+# ---------------------------------------------------------------------------
+
+class VeeamServerConfigTable(NetBoxTable):
+    """Table for Veeam B&R server connection profiles."""
+
+    name = tables.Column(linkify=True)
+    host = tables.Column()
+    netbox_object = tables.Column(
+        accessor="netbox_object", linkify=True, orderable=False, verbose_name="NetBox Device / VM"
+    )
+    enabled = columns.BooleanColumn()
+    sync_schedule = columns.ChoiceFieldColumn()
+    last_sync = columns.DateTimeColumn()
+    last_sync_status = tables.Column()
+    actions = columns.ActionsColumn(actions=("edit", "delete", "changelog"))
+
+    class Meta(NetBoxTable.Meta):
+        model = VeeamServerConfig
+        fields = (
+            "pk",
+            "name",
+            "host",
+            "winrm_port",
+            "username",
+            "netbox_object",
+            "enabled",
+            "sync_schedule",
+            "last_sync",
+            "last_sync_status",
+        )
+        default_columns = (
+            "name",
+            "host",
+            "netbox_object",
+            "enabled",
+            "sync_schedule",
+            "last_sync",
+            "last_sync_status",
+        )
+
+
+class VeeamBackupStatusTable(NetBoxTable):
+    """Table for per-VM Veeam backup tracking."""
+
+    id = tables.Column(linkify=True)
+    vm = tables.Column(linkify=True, verbose_name="Virtual Machine")
+    server = tables.Column(linkify=True, verbose_name="Veeam Server")
+    job_name = tables.Column(verbose_name="Job")
+    last_result = columns.ChoiceFieldColumn(verbose_name="Last Result")
+    last_run_start = columns.DateTimeColumn(verbose_name="Last Run")
+    last_restore_point = columns.DateTimeColumn(verbose_name="Last Restore Point")
+    backup_age_days = tables.Column(
+        accessor="backup_age_days",
+        verbose_name="Age (days)",
+        orderable=False,
+    )
+    last_run_reason = tables.Column(verbose_name="Reason")
+    actions = columns.ActionsColumn(actions=("delete", "changelog"))
+
+    class Meta(NetBoxTable.Meta):
+        model = VeeamBackupStatus
+        fields = (
+            "pk",
+            "id",
+            "vm",
+            "server",
+            "job_name",
+            "last_result",
+            "last_run_start",
+            "last_run_end",
+            "last_restore_point",
+            "backup_age_days",
+            "restore_point_type",
+            "last_run_reason",
+        )
+        default_columns = (
+            "vm",
+            "server",
+            "job_name",
+            "last_result",
+            "last_run_start",
+            "last_restore_point",
             "backup_age_days",
         )
 

@@ -2,7 +2,7 @@
 
 from netbox.plugins import PluginTemplateExtension
 
-from .models import PveClusterConfig, PveSyncJob, PveVmTaskLog
+from .models import PveBackupStatus, PveClusterConfig, PveSyncJob, PveVmTaskLog, VeeamBackupStatus
 
 
 class VirtualMachineSyncButton(PluginTemplateExtension):
@@ -74,4 +74,19 @@ class VmTaskLogPanel(PluginTemplateExtension):
         )
 
 
-template_extensions = [VirtualMachineSyncButton, VmTaskLogPanel]
+class VmBackupPanel(PluginTemplateExtension):
+    """Show PBS and Veeam backup status side by side on VM detail pages."""
+
+    models = ["virtualization.virtualmachine"]
+
+    def right_page(self):
+        vm = self.context["object"]
+        pbs = PveBackupStatus.objects.filter(vm=vm).first()
+        veeam = list(VeeamBackupStatus.objects.filter(vm=vm).select_related("server"))
+        return self.render(
+            "pve_sync/inc/vm_backup_panel.html",
+            extra_context={"pbs_status": pbs, "veeam_statuses": veeam},
+        )
+
+
+template_extensions = [VirtualMachineSyncButton, VmTaskLogPanel, VmBackupPanel]

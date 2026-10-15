@@ -36,6 +36,14 @@ class BackupStatusChoices(models.TextChoices):
     STATUS_UNKNOWN = "unknown", "Unknown"
 
 
+class VeeamResultChoices(models.TextChoices):
+    SUCCESS = "success", "Success"
+    WARNING = "warning", "Warning"
+    FAILED = "failed", "Failed"
+    RUNNING = "running", "Running"
+    UNKNOWN = "unknown", "Unknown"
+
+
 class SyncScheduleChoices(models.TextChoices):
     DISABLED = "disabled", "Disabled"
     HOURLY = "hourly", "Hourly"

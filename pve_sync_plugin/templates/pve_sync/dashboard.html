@@ -8,7 +8,7 @@
 <div class="row mb-3 align-items-center">
   <div class="col">
     <h1 class="mb-0"><i class="mdi mdi-hexagon-multiple text-primary"></i> Proxmox Sync Dashboard</h1>
-    <div class="text-muted small">Proxmox VE &amp; PBS → NetBox synchronization overview</div>
+    <div class="text-muted small">Proxmox VE, PBS &amp; Veeam → NetBox synchronization overview</div>
   </div>
   <div class="col-auto">
     <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-sync' %}" class="d-inline-flex gap-2">
@@ -240,6 +240,9 @@
               <td>
                 <a href="{{ pbs.get_absolute_url }}" class="fw-semibold">{{ pbs.name }}</a>
                 <div class="text-muted small">{{ pbs.display_host }}</div>
+                {% if pbs.netbox_device %}
+                  <div class="small"><a href="{{ pbs.netbox_device.get_absolute_url }}" title="NetBox 設備"><i class="mdi mdi-server"></i> {{ pbs.netbox_device.name }}</a></div>
+                {% endif %}
               </td>
               <td>
                 <a href="{% url 'plugins:pve_sync_plugin:pbsserverconfig_edit' pbs.pk %}" title="編輯排程">
@@ -291,6 +294,110 @@
 
 </div>
 
+{# ── Veeam Servers ── #}
+<div class="row g-3 mb-4">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <h5 class="card-header bg-transparent d-flex align-items-center">
+        <i class="mdi mdi-shield-sync me-2"></i> Veeam 備份伺服器
+        <a href="{% url 'plugins:pve_sync_plugin:veeamserverconfig_add' %}" class="ms-auto btn btn-sm btn-outline-success">
+          <i class="mdi mdi-plus-thick"></i> 新增
+        </a>
+      </h5>
+      <div class="card-body p-0">
+        {% if veeam_servers %}
+        <table class="table table-sm table-hover mb-0 align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>名稱</th>
+              <th class="text-center">已同步 VM</th>
+              <th>備份任務</th>
+              <th>排程</th>
+              <th>上次同步</th>
+              <th>狀態</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in veeam_servers %}
+            <tr>
+              <td>
+                <a href="{{ v.get_absolute_url }}" class="fw-semibold">{{ v.name }}</a>
+                <div class="text-muted small">{{ v.host }}</div>
+                {% if v.netbox_device %}
+                  <div class="small"><a href="{{ v.netbox_device.get_absolute_url }}" title="NetBox 設備"><i class="mdi mdi-server"></i> {{ v.netbox_device.name }}</a></div>
+                {% elif v.netbox_vm %}
+                  <div class="small"><a href="{{ v.netbox_vm.get_absolute_url }}" title="NetBox 虛擬機"><i class="mdi mdi-monitor"></i> {{ v.netbox_vm.name }}</a></div>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                <a href="{% url 'plugins:pve_sync_plugin:veeambackupstatus_list' %}?server_id={{ v.pk }}" class="fw-semibold" title="查看此伺服器備份的 VM">{{ v.vm_count }}</a>
+                {% if v.vm_problem_count %}
+                  <br><a href="{% url 'plugins:pve_sync_plugin:veeambackupstatus_list' %}?server_id={{ v.pk }}&problem=true" class="badge text-bg-warning text-decoration-none">
+                    <i class="mdi mdi-alert-circle"></i> {{ v.vm_problem_count }} 台異常
+                  </a>
+                {% elif v.vm_count %}
+                  <br><span class="text-success small"><i class="mdi mdi-check-all"></i> 全部正常</span>
+                {% endif %}
+              </td>
+              <td>
+                {% for job in v.job_summary %}
+                  {% if job.result == 'success' %}<span class="badge text-bg-success" title="{{ job.name }}">{{ job.name }}</span>
+                  {% elif job.result == 'warning' %}<span class="badge text-bg-warning" title="{{ job.name }}">{{ job.name }}</span>
+                  {% elif job.result == 'failed' %}<span class="badge text-bg-danger" title="{{ job.name }}">{{ job.name }}</span>
+                  {% elif job.result == 'running' %}<span class="badge text-bg-primary" title="{{ job.name }}">{{ job.name }}</span>
+                  {% else %}<span class="badge text-bg-secondary" title="{{ job.name }}">{{ job.name }}</span>{% endif %}
+                {% empty %}
+                  <span class="text-muted">—</span>
+                {% endfor %}
+              </td>
+              <td>
+                <a href="{% url 'plugins:pve_sync_plugin:veeamserverconfig_edit' v.pk %}" title="編輯排程">
+                  {% if v.sync_schedule == 'disabled' or not v.sync_schedule %}
+                    <span class="text-muted">—</span>
+                  {% else %}
+                    <span class="badge text-bg-{{ v.get_sync_schedule_color }}">{{ v.get_sync_schedule_display }}</span>
+                  {% endif %}
+                </a>
+              </td>
+              <td class="text-nowrap">
+                {% if v.last_sync %}{{ v.last_sync|date:"m-d H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td>
+                {% if v.last_sync_status == 'success' %}
+                  <span class="badge text-bg-success">成功</span>
+                {% elif v.last_sync_status == 'failed' %}
+                  <span class="badge text-bg-danger">失敗</span>
+                {% elif v.last_sync_status %}
+                  <span class="badge text-bg-secondary">{{ v.last_sync_status }}</span>
+                {% else %}
+                  <span class="badge text-bg-info">未同步</span>
+                {% endif %}
+              </td>
+              <td>
+                <form method="post" action="{% url 'plugins:pve_sync_plugin:trigger-veeam-sync' v.pk %}" class="d-inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="return_url" value="{{ request.path }}">
+                  <button type="submit" class="btn btn-xs btn-outline-success" title="立即同步">
+                    <i class="mdi mdi-sync"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <div class="p-4 text-center text-muted">
+            <i class="mdi mdi-database-off fs-2 d-block mb-2"></i>
+            尚未設定 Veeam 伺服器。<a href="{% url 'plugins:pve_sync_plugin:veeamserverconfig_add' %}">立即新增 →</a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
 {# ── Alerts + Webhook ── #}
 <div class="row g-3 mb-4">
   <div class="col-md-5">
@@ -299,8 +406,12 @@
       <div class="card-body p-0">
         <ul class="list-group list-group-flush">
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-backup-restore text-warning me-1"></i> 備份逾期（&gt;7 天）</span>
+            <span><i class="mdi mdi-backup-restore text-warning me-1"></i> PBS 備份逾期（&gt;{{ pbs_overdue_days }} 天）</span>
             <a href="{% url 'plugins:pve_sync_plugin:pvebackupstatus_list' %}" class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ backup_alerts }}</a>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span><i class="mdi mdi-shield-alert-outline text-warning me-1"></i> Veeam 備份異常（逾期 &gt;{{ veeam_overdue_days }} 天或失敗）</span>
+            <a href="{% url 'plugins:pve_sync_plugin:veeambackupstatus_list' %}?problem=true" class="badge text-bg-{% if veeam_backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ veeam_backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span><i class="mdi mdi-webhook text-info me-1"></i> 待處理 Webhook</span>

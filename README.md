@@ -65,7 +65,7 @@
 - Guest Agent 異常提醒：VM 執行中卻取不到 IP（QEMU Guest Agent 未啟用或未安裝）時透過 Telegram 提醒
 - VM 佈建規劃驗證：每次同步自動比對「VM 佈建」規劃中的記錄——VM 是否已建立、QEMU Guest Agent 是否配置好、IP 是否可取得且與規劃一致，全部通過即自動標記規劃記錄為完成，否則持續提醒
 - IP 衝突自動判斷：兩台 VM 設定了相同 IP 時，若雙方都在開機中則無法自動判斷、發 Telegram 通知交由人工處理；若一開一關，自動把 IP 歸給開機中的那台
-- 備份逾期提醒：標記了「監控標籤」（Settings 頁可設定，預設 `0N`）的 VM 若備份已逾期（>7 天未備份或從未備份），透過獨立的 Telegram 群組發送備份異常通知，與一般同步通知分流；標記了「忽略標籤」（預設 `NO-Backup`）的 VM 一律跳過不檢查
+- 備份逾期提醒：標記了「監控標籤」（Settings 頁可設定，預設 `0N`）的 VM 若備份已逾期（PBS / Veeam 逾期天數皆可在 Settings 設定，預設 7 天；或從未備份；PBS 與 Veeam 分開判斷，VM 在哪個來源有備份就檢查哪個，Veeam 最後一次失敗也會提醒），透過獨立的 Telegram 群組發送備份異常通知，與一般同步通知分流；標記了「忽略標籤」（預設 `NO-Backup`）的 VM 一律跳過不檢查
 - 增量同步：透過 SQLite state_db 追蹤變更，避免全量更新
 
 ### 多叢集支援
@@ -76,13 +76,29 @@
 
 ### Proxmox Backup Server 同步
 
-- PBS 主機 → NetBox **Device**（版本、規格、網路介面）
+- PBS 主機 → NetBox **Device**（版本、規格、網路介面）；PBS 設定可關聯已上架的設備（預設依節點名稱自動關聯），同步只更新系統資訊，不會覆寫設備的型號、角色、站點與機櫃位置
+- 同步連續失敗達設定次數（預設 2 次）時發送告警，恢復後再通知一次
 - 讀取所有 Datastore 備份快照，更新對應 VM 的 **Backup Status**（最後備份時間、大小）
 - 支援多台 PBS 伺服器，每台獨立設定
 
+### Veeam Backup & Replication 監控
+
+- 透過 **WinRM + Veeam PowerShell** 讀取備份任務與還原點（Community Edition 的 REST API 不開放 job / session / restore point，因此不走 REST API）
+- 每個備份任務的最後一次執行結果（Success / Warning / Failed）與每台 VM 的結果、失敗原因
+- 每台 VM 的最新還原點，寫入 **Veeam Backup Status**（與 PBS 的 Backup Status 分開記錄、分開顯示）
+- 依還原點內的 Proxmox VMID + 節點名稱對應 NetBox VM，跨叢集 VMID 重複時不會對錯
+- 任務失敗 / 警告時透過備份告警 Telegram 群組通知，同一次執行只通知一次
+- 已啟用的任務超過設定時數（預設 26 小時）沒有執行時告警（偵測排程停擺）
+- Repository 容量顯示，剩餘空間低於設定比例（預設 10%）時告警
+- 伺服器頁顯示授權用量（Community Edition 上限 10 個 instance，用滿時標示）
+- 依 Host IP 自動關聯 NetBox 中執行 Veeam 的設備或 VM
+- 同步連續失敗達設定次數時告警，恢復後再通知一次
+- NetBox VM 頁面右側新增「備份狀態」面板，PBS 與各台 Veeam 分列
+- 支援多台 Veeam 伺服器，每台獨立設定
+
 ### 排程自動同步
 
-- 每個 PVE 叢集和 PBS 伺服器均可設定同步週期：`hourly`、`every_3h`、`every_6h`、`daily`、`weekly`
+- 每個 PVE 叢集、PBS 伺服器和 Veeam 伺服器均可設定同步週期：`hourly`、`every_3h`、`every_6h`、`daily`、`weekly`
 - 由系統 cron 每 15 分鐘執行 `run_scheduled_syncs` management command，自動觸發到期的同步
 - 同步中時不重複觸發（避免排隊堆積）
 
@@ -117,6 +133,7 @@
 | NetBox | 4.5 – 4.6.x |
 | Proxmox VE | 6.0+ |
 | Proxmox Backup Server | 2.x（可選） |
+| Veeam Backup & Replication | 13（可選）；伺服器需開啟 WinRM（預設 5985）並安裝 PowerShell 7（VBR 13 安裝時內含） |
 | Redis | 任意版本（NetBox RQ Worker 需要） |
 | arping | 可選；VM 佈建頁的 IP 空閒偵測需要，見下方 FAQ |
 
@@ -229,6 +246,24 @@ crontab -e
 | Sync Schedule | 自動同步週期 |
 | Enabled | 是否啟用 |
 
+### 新增 Veeam 伺服器
+
+前往 `Plugins → Proxmox Sync → Veeam Servers → Add`：
+
+| 欄位 | 說明 |
+|---|---|
+| Name | 伺服器識別名稱 |
+| Host | Veeam B&R 伺服器主機名稱或 IP |
+| WinRM Port | 預設 `5985`（HTTP，NTLM 加密）；HTTPS 通常為 `5986` |
+| WinRM Use HTTPS / Verify SSL | 使用 HTTPS 時勾選 |
+| Username / Password | 可透過 WinRM 登入並執行 Veeam PowerShell 的 Windows 帳號（建議建立專用帳號） |
+| Sync Schedule | 自動同步週期（每次約需 20–60 秒，主要花在載入 Veeam 模組） |
+| Enabled | 是否啟用 |
+
+> 連線密碼（PVE secret、PBS token secret、Veeam 密碼）以 NetBox 的 `SECRET_KEY` 衍生的金鑰加密儲存，且不會出現在 NetBox 變更紀錄中。**更換 `SECRET_KEY` 後需重新輸入這些密碼。**
+>
+> NTLM 需要 `pywinrm>=0.5`（使用 pyspnego）。舊版 pywinrm 走 `ntlm-auth`，在 OpenSSL 3 上會因 MD4 被停用而失敗（`unsupported hash type md4`）。
+
 ---
 
 ## 使用方式
@@ -298,8 +333,12 @@ GET /api/plugins/pve-sync/jobs/
 # 查詢 PVE 叢集設定
 GET /api/plugins/pve-sync/clusters/
 
-# 查詢備份狀態
+# 查詢備份狀態（PBS）
 GET /api/plugins/pve-sync/backup-status/
+
+# 查詢 Veeam 伺服器 / 各 VM 的 Veeam 備份狀態
+GET /api/plugins/pve-sync/veeam-servers/
+GET /api/plugins/pve-sync/veeam-backup-status/?problem=true
 ```
 
 ---
@@ -331,6 +370,15 @@ GET /api/plugins/pve-sync/backup-status/
 | 備份快照 | PveBackupStatus.last_backup | 取各 VM 最新快照 |
 | 快照大小 | PveBackupStatus.backup_size | bytes |
 | 備份狀態 | `success`（≤7天）/ `failed`（>7天） | |
+
+### Veeam → NetBox
+
+| Veeam | NetBox | 備註 |
+|---|---|---|
+| 備份任務最後一次執行 | VeeamServerConfig.job_summary | 結果、時間、失敗的 VM 與原因 |
+| 每台 VM 在最後一次執行的結果 | VeeamBackupStatus.last_result | `success` / `warning` / `failed` / `running` |
+| 最新還原點 | VeeamBackupStatus.last_restore_point | 以 VBR 伺服器本地時間換算時區 |
+| 還原點中的 Proxmox VMID / 節點 | 對應 VirtualMachine | VMID 重複時再比節點、VM 名稱，無法判斷則跳過 |
 
 ---
 

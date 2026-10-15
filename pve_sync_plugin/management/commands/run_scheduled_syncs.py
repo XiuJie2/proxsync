@@ -1,4 +1,4 @@
-"""Check all PVE/PBS configs with a sync schedule and trigger overdue ones."""
+"""Check all PVE/PBS/Veeam configs with a sync schedule and trigger overdue ones."""
 
 import datetime
 import logging
@@ -18,7 +18,7 @@ _SCHEDULE_INTERVALS = {
 
 
 class Command(BaseCommand):
-    help = "Trigger syncs for PVE clusters and PBS servers that are past their scheduled interval."
+    help = "Trigger syncs for PVE clusters, PBS and Veeam servers that are past their scheduled interval."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -34,6 +34,7 @@ class Command(BaseCommand):
 
         triggered += self._check_pve_clusters(now, dry_run)
         triggered += self._check_pbs_servers(now, dry_run)
+        triggered += self._check_veeam_servers(now, dry_run)
 
         level = self.style.SUCCESS if triggered else self.style.WARNING
         self.stdout.write(level(
@@ -104,6 +105,36 @@ class Command(BaseCommand):
                     details={"source": "run_scheduled_syncs", "pbs_server_pk": pbs.pk},
                 )
                 enqueue_pbs_sync(job, pbs)
+            triggered += 1
+
+        return triggered
+
+    def _check_veeam_servers(self, now, dry_run):
+        from pve_sync_plugin.models import PveSyncJob, VeeamServerConfig
+        from pve_sync_plugin.tasks import enqueue_veeam_sync
+        from pve_sync_plugin.view_helpers import has_active_sync_job
+
+        triggered = 0
+        servers = VeeamServerConfig.objects.filter(enabled=True).exclude(sync_schedule="disabled")
+        for server in servers:
+            if not self._is_due(server.last_sync, server.sync_schedule, now):
+                logger.debug("Veeam server '%s' not yet due (schedule=%s, last_sync=%s)",
+                             server.name, server.sync_schedule, server.last_sync)
+                continue
+
+            if has_active_sync_job(f"veeam:{server.name}"):
+                self.stdout.write(f"  Skipping Veeam '{server.name}': sync already running.")
+                continue
+
+            self.stdout.write(f"  Triggering Veeam sync for '{server.name}' (schedule={server.sync_schedule})")
+            if not dry_run:
+                job = PveSyncJob.objects.create(
+                    cluster_name=f"veeam:{server.name}",
+                    status="pending",
+                    trigger="scheduled",
+                    details={"source": "run_scheduled_syncs", "veeam_server_pk": server.pk},
+                )
+                enqueue_veeam_sync(job, server)
             triggered += 1
 
         return triggered

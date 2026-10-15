@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from .choices import BackupStatusChoices
 from .models import PveClusterConfig, PveSyncJob, PveWebhookEvent
-from .utils import get_plugin_config
+from .utils import get_plugin_config, get_threshold
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +196,37 @@ def _update_cluster_status(job):
     cluster.save(update_fields=["last_sync", "last_sync_status"])
 
 
+def _record_sync_outcome(config, kind, ok, error=""):
+    """Track consecutive sync failures of a PBS/Veeam server and alert once
+    when they reach the configured count, then once more on recovery."""
+    import html
+
+    from .utils import get_threshold, send_backup_alert
+
+    threshold = get_threshold("sync_failure_alert_count")
+    name = html.escape(config.name)
+    if ok:
+        if config.failure_alerted:
+            send_backup_alert(
+                f"✅ <b>{kind} 同步已恢復</b>\n\n🗄️ 伺服器: {name}\n"
+                f"先前連續失敗 {config.consecutive_failures} 次，現已同步成功。"
+            )
+        config.consecutive_failures = 0
+        config.failure_alerted = False
+    else:
+        config.consecutive_failures += 1
+        if threshold and config.consecutive_failures >= threshold and not config.failure_alerted:
+            sent = send_backup_alert(
+                f"❌ <b>{kind} 同步連續失敗 {config.consecutive_failures} 次</b>\n\n"
+                f"🗄️ 伺服器: {name}\n"
+                f"💬 {html.escape(str(error)[:500])}\n\n"
+                f"⚠️ 無法取得備份狀態，請確認伺服器連線與帳號。"
+            )
+            # Not configured (None) counts as handled so it is not retried forever.
+            config.failure_alerted = sent is not False
+    return ["consecutive_failures", "failure_alerted"]
+
+
 # ---------------------------------------------------------------------------
 # PBS sync
 # ---------------------------------------------------------------------------
@@ -243,13 +274,17 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
         os.environ["PBS_VERIFY_SSL"] = "true" if pbs.pbs_verify_ssl else "false"
         os.environ["PBS_NODE_NAME"] = pbs.pbs_node_name
         os.environ["PBS_NETBOX_SITE"] = pbs.netbox_site.name if pbs.netbox_site else ""
+        os.environ["PBS_DEVICE_ID"] = str(pbs.netbox_device_id or "")
         os.environ["NB_API_URL"] = get_plugin_config("netbox_url", "")
         os.environ["NB_API_TOKEN"] = get_plugin_config("netbox_token", "")
 
         from pbs_sync import PBSToNetBoxSync
 
         syncer = PBSToNetBoxSync()
-        syncer.sync()
+        device_id = syncer.sync()
+        if device_id and pbs.netbox_device_id != device_id:
+            pbs.netbox_device_id = device_id
+            pbs.save(update_fields=["netbox_device"])
 
         # Write backup records to PveBackupStatus
         backup_updated, backup_skipped = None, None
@@ -285,7 +320,8 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
 
         pbs.last_sync = job.end_time
         pbs.last_sync_status = "success"
-        pbs.save(update_fields=["last_sync", "last_sync_status"])
+        extra = _record_sync_outcome(pbs, "PBS", ok=True)
+        pbs.save(update_fields=["last_sync", "last_sync_status", *extra])
 
         logger.info("PBS sync job %s completed for server %s", job.id, pbs.name)
         return {"status": "success", "job_id": job.id}
@@ -301,16 +337,117 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
 
         pbs.last_sync = job.end_time
         pbs.last_sync_status = "failed"
-        pbs.save(update_fields=["last_sync", "last_sync_status"])
+        extra = _record_sync_outcome(pbs, "PBS", ok=False, error=exc)
+        pbs.save(update_fields=["last_sync", "last_sync_status", *extra])
 
         return {"status": "failed", "job_id": job.id, "error": str(exc)}
 
     finally:
         stop_hb.set()
         for key in ["PBS_HOST", "PBS_TOKEN_NAME", "PBS_TOKEN_SECRET",
-                    "PBS_VERIFY_SSL", "PBS_NODE_NAME", "PBS_NETBOX_SITE",
+                    "PBS_VERIFY_SSL", "PBS_NODE_NAME", "PBS_NETBOX_SITE", "PBS_DEVICE_ID",
                     "NB_API_URL", "NB_API_TOKEN"]:
             os.environ.pop(key, None)
+
+
+# ---------------------------------------------------------------------------
+# Veeam sync
+# ---------------------------------------------------------------------------
+
+def enqueue_veeam_sync(job, veeam_server):
+    """Queue a Veeam sync job on NetBox's default RQ queue."""
+    try:
+        import django_rq
+
+        rq_job = django_rq.get_queue("default").enqueue(
+            run_veeam_sync_job, job.id, veeam_server.pk, job_timeout=_RQ_JOB_TIMEOUT
+        )
+        job.details["rq_job_id"] = rq_job.id
+        job.save(update_fields=["details"])
+        return rq_job.id
+    except Exception as exc:
+        job.status = "failed"
+        job.end_time = timezone.now()
+        job.details["queue_error"] = str(exc)
+        job.save(update_fields=["status", "end_time", "details"])
+        raise
+
+
+def run_veeam_sync_job(job_id, veeam_server_pk):
+    """Read job results and restore points from a Veeam B&R server over WinRM."""
+    import threading
+    from .models import VeeamServerConfig
+    from .models import find_netbox_host
+    from .veeam import (
+        VeeamWinRMClient,
+        apply_veeam_backup_status,
+        notify_job_alerts,
+        notify_repository_alerts,
+        summarize_jobs,
+        summarize_server_info,
+    )
+
+    job = PveSyncJob.objects.get(pk=job_id)
+    server = VeeamServerConfig.objects.get(pk=veeam_server_pk)
+    job.status = "running"
+    job.save(update_fields=["status"])
+
+    stop_hb = threading.Event()
+    hb = threading.Thread(target=_heartbeat_thread, args=(job_id, stop_hb), daemon=True)
+    hb.start()
+
+    try:
+        data = VeeamWinRMClient(server).collect()
+        counters = apply_veeam_backup_status(server, data)
+        summary = summarize_jobs(data, previous=server.job_summary)
+        alerts = notify_job_alerts(server, summary)
+        server_info = summarize_server_info(data, previous=server.server_info)
+        alerts += notify_repository_alerts(server, server_info)
+
+        job.refresh_from_db()
+        job.status = "success"
+        job.end_time = timezone.now()
+        job.details.update(counters)
+        job.details["veeam_jobs"] = len(summary)
+        job.details["veeam_failed_jobs"] = [
+            f"{j['name']} ({j['result']})" for j in summary if j["result"] in ("failed", "warning")
+        ]
+        job.details["veeam_alerts_sent"] = alerts
+        job.details.pop("heartbeat", None)
+        job.save()
+
+        server.last_sync = job.end_time
+        server.last_sync_status = "success"
+        server.server_info = server_info
+        server.job_summary = summary
+        fields = ["last_sync", "last_sync_status", "server_info", "job_summary"]
+        fields += _record_sync_outcome(server, "Veeam", ok=True)
+        if not server.netbox_device_id and not server.netbox_vm_id:
+            server.netbox_device, server.netbox_vm = find_netbox_host(server.host)
+            fields += ["netbox_device", "netbox_vm"]
+        server.save(update_fields=fields)
+
+        logger.info("Veeam sync job %s completed for server %s", job.id, server.name)
+        return {"status": "success", "job_id": job.id}
+
+    except Exception as exc:
+        logger.exception("Veeam sync job %s failed for server %s", job.id, server.name)
+        job.refresh_from_db()
+        job.status = "failed"
+        job.end_time = timezone.now()
+        job.details["error"] = str(exc)
+        job.details.pop("heartbeat", None)
+        job.save(update_fields=["status", "end_time", "details"])
+
+        server.last_sync = job.end_time
+        server.last_sync_status = "failed"
+        extra = _record_sync_outcome(server, "Veeam", ok=False, error=exc)
+        server.save(update_fields=["last_sync", "last_sync_status", *extra])
+
+        return {"status": "failed", "job_id": job.id, "error": str(exc)}
+
+    finally:
+        stop_hb.set()
 
 
 # ---------------------------------------------------------------------------
@@ -540,6 +677,7 @@ def _apply_pbs_backup_status(backup_records, snapshot_lookup=None):
         # Only update if this backup is newer than what is stored
         if last_backup and (status_obj.last_backup is None or last_backup > status_obj.last_backup):
             age_days = (timezone.now() - last_backup).days
+            overdue_days = get_threshold("backup_overdue_days_pbs")
             if not size and snapshot_lookup is not None:
                 if snapshot is None:
                     snapshot = snapshot_lookup(info)
@@ -550,7 +688,7 @@ def _apply_pbs_backup_status(backup_records, snapshot_lookup=None):
             status_obj.backup_path = info.get("backup_path", "")
             status_obj.backup_status = (
                 BackupStatusChoices.STATUS_SUCCESS
-                if age_days <= 7
+                if not overdue_days or age_days <= overdue_days
                 else BackupStatusChoices.STATUS_FAILED
             )
             status_obj.save(update_fields=[

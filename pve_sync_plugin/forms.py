@@ -5,8 +5,8 @@ from django import forms
 from netbox.forms import NetBoxModelForm, NetBoxModelFilterSetForm
 from utilities.forms.fields import DynamicModelChoiceField
 
-from dcim.models import Site
-from virtualization.models import Cluster, ClusterType
+from dcim.models import Device, Site
+from virtualization.models import Cluster, ClusterType, VirtualMachine
 
 from .choices import (
     BackupStatusChoices,
@@ -14,9 +14,19 @@ from .choices import (
     SyncJobStatusChoices,
     SyncJobTriggerChoices,
     SyncScheduleChoices,
+    VeeamResultChoices,
     WebhookEventChoices,
 )
-from .models import PbsServerConfig, PveClusterConfig, PveDriftEvent, PvePluginSettings, PveSyncJob, PveWebhookEvent
+from .models import (
+    PbsServerConfig,
+    PveClusterConfig,
+    PveDriftEvent,
+    PvePluginSettings,
+    PveSyncJob,
+    PveWebhookEvent,
+    VeeamBackupStatus,
+    VeeamServerConfig,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +60,11 @@ class PvePluginSettingsForm(NetBoxModelForm):
             "webhook_secret",
             "backup_watch_tag",
             "backup_ignore_tag",
+            "backup_overdue_days_pbs",
+            "backup_overdue_days_veeam",
+            "veeam_job_not_run_hours",
+            "veeam_repo_free_percent",
+            "sync_failure_alert_count",
             "default_cluster_name",
             "default_netbox_cluster",
             "default_site",
@@ -81,6 +96,14 @@ class PvePluginSettingsForm(NetBoxModelForm):
                 "(case-insensitive) — for VMs that don't need backups."
             ),
             "state_db_path": "Path to SQLite state database for incremental sync",
+            "backup_overdue_days_pbs": "PBS 超過幾天沒有新備份視為逾期（0 = 不檢查）",
+            "backup_overdue_days_veeam": "Veeam 超過幾天沒有新還原點視為逾期（0 = 不檢查）",
+            "veeam_job_not_run_hours": (
+                "已啟用的 Veeam 備份任務超過幾小時沒有執行就告警（0 = 不檢查）。"
+                "每日任務建議 26，每週任務請設大於 168。"
+            ),
+            "veeam_repo_free_percent": "Veeam Repository 剩餘空間低於幾 % 就告警（0 = 不檢查）",
+            "sync_failure_alert_count": "PBS / Veeam 同步連續失敗幾次就告警，恢復後會再通知一次（0 = 不告警）",
         }
 
     def save(self, *args, **kwargs):
@@ -210,6 +233,12 @@ class PbsServerConfigForm(NetBoxModelForm):
         queryset=Site.objects.all(),
         required=False,
     )
+    netbox_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        label="NetBox Device",
+        help_text="這台 PBS 的實體設備；留空時同步會依節點名稱自動尋找並關聯",
+    )
 
     class Meta:
         model = PbsServerConfig
@@ -222,6 +251,7 @@ class PbsServerConfigForm(NetBoxModelForm):
             "pbs_verify_ssl",
             "pbs_node_name",
             "netbox_site",
+            "netbox_device",
             "enabled",
             "sync_schedule",
         )
@@ -252,3 +282,76 @@ class PbsServerConfigFilterForm(NetBoxModelFilterSetForm):
     model = PbsServerConfig
 
     enabled = forms.NullBooleanField(required=False)
+
+
+class VeeamServerConfigForm(NetBoxModelForm):
+    """Veeam B&R server configuration form."""
+
+    password = forms.CharField(
+        widget=forms.PasswordInput(render_value=True),
+    )
+    netbox_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        label="NetBox Device",
+        help_text="Veeam 裝在實體機時選這裡",
+    )
+    netbox_vm = DynamicModelChoiceField(
+        queryset=VirtualMachine.objects.all(),
+        required=False,
+        label="NetBox Virtual Machine",
+        help_text="Veeam 裝在 VM 時選這裡；兩者都留空會依 Host IP 自動尋找",
+    )
+
+    class Meta:
+        model = VeeamServerConfig
+        fields = (
+            "name",
+            "description",
+            "host",
+            "winrm_port",
+            "winrm_use_https",
+            "winrm_verify_ssl",
+            "username",
+            "password",
+            "netbox_device",
+            "netbox_vm",
+            "enabled",
+            "sync_schedule",
+        )
+        help_texts = {
+            "username": (
+                "Windows account that can log on over WinRM and run the Veeam PowerShell "
+                "module — a dedicated read-only account is recommended."
+            ),
+            "sync_schedule": (
+                "Picked up by the <code>run_scheduled_syncs</code> cron job. Each sync takes "
+                "about a minute (loading the Veeam module is slow)."
+            ),
+        }
+
+
+class VeeamServerConfigFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for Veeam server config list views."""
+
+    model = VeeamServerConfig
+
+    enabled = forms.NullBooleanField(required=False)
+
+
+class VeeamBackupStatusFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for Veeam backup status list views."""
+
+    model = VeeamBackupStatus
+
+    server_id = forms.ModelMultipleChoiceField(
+        queryset=VeeamServerConfig.objects.all(),
+        required=False,
+        label="Veeam Server",
+    )
+    last_result = forms.MultipleChoiceField(
+        choices=VeeamResultChoices.choices,
+        required=False,
+    )
+    stale = forms.NullBooleanField(required=False, label="Stale (overdue)")
+    problem = forms.NullBooleanField(required=False, label="Stale or failed")

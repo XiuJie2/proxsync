@@ -149,24 +149,34 @@ class PBSToNetBoxSync:
             }
         }
 
-        device = self.nb.dcim.devices.get(name=node_name)
+        # 優先使用 PBS 設定裡關聯的設備，其次依節點名稱尋找。
+        device_id = _get_env('PBS_DEVICE_ID', '')
+        device = self.nb.dcim.devices.get(int(device_id)) if device_id else None
+        if not device:
+            device = self.nb.dcim.devices.get(name=node_name)
         try:
             if device:
-                device.update(device_data)
-                logger.info("Updated device: %s", node_name)
+                # 既有設備（可能已手動上架、改成實際硬體型號）只更新系統資訊，
+                # 不覆寫 device type / role / site / status，以免把機櫃位置等資料洗掉。
+                device.update({
+                    'comments': comments,
+                    'custom_fields': device_data['custom_fields'],
+                })
+                logger.info("Updated device: %s", device.name)
             else:
                 device = self.nb.dcim.devices.create(**device_data)
                 logger.info("Created device: %s", node_name)
         except Exception as e:
             logger.warning("Device sync error (retrying without custom_fields): %s", e)
-            device_data.pop('custom_fields')
             if device:
-                device.update(device_data)
+                device.update({'comments': comments})
             else:
+                device_data.pop('custom_fields')
                 device = self.nb.dcim.devices.create(**device_data)
 
         # 4. 同步網路並設置 Primary IP
         self.sync_networking(device, node_name)
+        return device.id
 
     def sync_networking(self, device, node_name=None):
         if node_name is None:

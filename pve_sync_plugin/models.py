@@ -12,9 +12,20 @@ from .choices import (
     SyncJobStatusChoices,
     SyncJobTriggerChoices,
     SyncScheduleChoices,
+    VeeamResultChoices,
     VmTaskTypeChoices,
     WebhookEventChoices,
 )
+from .fields import EncryptedTextField, mask_secrets
+
+
+class SecretMaskMixin:
+    """Keep credentials out of NetBox's changelog snapshots."""
+
+    secret_fields = ()
+
+    def serialize_object(self, exclude=None):
+        return mask_secrets(super().serialize_object(exclude=exclude), self.secret_fields)
 
 
 class PveSyncJob(NetBoxModel):
@@ -97,6 +108,10 @@ class PveSyncJob(NetBoxModel):
     @property
     def is_pbs_job(self):
         return self.cluster_name.startswith("pbs:")
+
+    @property
+    def is_veeam_job(self):
+        return self.cluster_name.startswith("veeam:")
 
     @property
     def error_message(self):
@@ -191,9 +206,12 @@ class PveBackupStatus(NetBoxModel):
 
     @property
     def is_stale(self):
+        from .utils import get_threshold
+
         if not self.last_backup:
             return True
-        return self.backup_age_days > 7
+        days = get_threshold("backup_overdue_days_pbs")
+        return bool(days) and self.backup_age_days > days
 
 
 class PveDriftEvent(NetBoxModel):
@@ -246,8 +264,10 @@ class PveDriftEvent(NetBoxModel):
         }.get(self.drift_type, "secondary")
 
 
-class PvePluginSettings(NetBoxModel):
+class PvePluginSettings(SecretMaskMixin, NetBoxModel):
     """Singleton settings editable from the NetBox Web UI."""
+
+    secret_fields = ("netbox_token", "telegram_bot_token", "webhook_secret")
 
     netbox_url = models.URLField(blank=True)
     netbox_token = models.CharField(max_length=200, blank=True)
@@ -267,6 +287,26 @@ class PvePluginSettings(NetBoxModel):
     backup_ignore_tag = models.CharField(
         max_length=50, default="NO-Backup", blank=True,
         help_text="VM 標籤：有此標籤的 VM 一律忽略備份逾期檢查（不需要備份）",
+    )
+    backup_overdue_days_pbs = models.PositiveIntegerField(
+        default=7,
+        help_text="PBS 超過幾天沒有新備份視為逾期（0 = 不檢查）",
+    )
+    backup_overdue_days_veeam = models.PositiveIntegerField(
+        default=7,
+        help_text="Veeam 超過幾天沒有新還原點視為逾期（0 = 不檢查）",
+    )
+    veeam_job_not_run_hours = models.PositiveIntegerField(
+        default=26,
+        help_text="已啟用的 Veeam 備份任務超過幾小時沒有執行就告警（0 = 不檢查）",
+    )
+    veeam_repo_free_percent = models.PositiveIntegerField(
+        default=10,
+        help_text="Veeam Repository 剩餘空間低於幾 % 就告警（0 = 不檢查）",
+    )
+    sync_failure_alert_count = models.PositiveIntegerField(
+        default=2,
+        help_text="PBS / Veeam 同步連續失敗幾次就告警（0 = 不告警）",
     )
 
     default_cluster_name = models.CharField(max_length=100, default="default")
@@ -310,14 +350,16 @@ class PvePluginSettings(NetBoxModel):
         return settings
 
 
-class PveClusterConfig(NetBoxModel):
+class PveClusterConfig(SecretMaskMixin, NetBoxModel):
+    secret_fields = ("pve_secret",)
+
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
 
     pve_host = models.CharField(max_length=200)
     pve_user = models.CharField(max_length=100)
     pve_token = models.CharField(max_length=100)
-    pve_secret = models.CharField(max_length=200)
+    pve_secret = EncryptedTextField()
     pve_verify_ssl = models.BooleanField(default=False)
 
     netbox_site = models.ForeignKey(
@@ -414,8 +456,10 @@ class PveClusterConfig(NetBoxModel):
         return self.last_sync > recent and self.last_sync_status == "success"
 
 
-class PbsServerConfig(NetBoxModel):
+class PbsServerConfig(SecretMaskMixin, NetBoxModel):
     """Proxmox Backup Server connection configuration."""
+
+    secret_fields = ("pbs_token_secret",)
 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
@@ -427,7 +471,7 @@ class PbsServerConfig(NetBoxModel):
         max_length=100,
         help_text="API token (e.g. root@pam!apitoken)",
     )
-    pbs_token_secret = models.CharField(max_length=200)
+    pbs_token_secret = EncryptedTextField()
     pbs_verify_ssl = models.BooleanField(default=False)
     pbs_node_name = models.CharField(
         max_length=100,
@@ -440,6 +484,14 @@ class PbsServerConfig(NetBoxModel):
         blank=True,
         related_name="pbs_servers",
     )
+    netbox_device = models.ForeignKey(
+        "dcim.Device",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pbs_server_configs",
+        help_text="The NetBox device of this PBS host (found by node name when left empty)",
+    )
     enabled = models.BooleanField(default=True)
     sync_schedule = models.CharField(
         max_length=20,
@@ -448,6 +500,8 @@ class PbsServerConfig(NetBoxModel):
     )
     last_sync = models.DateTimeField(null=True, blank=True)
     last_sync_status = models.CharField(max_length=20, blank=True)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    failure_alerted = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["name"]
@@ -478,6 +532,227 @@ class PbsServerConfig(NetBoxModel):
         host = host.split(':')[0]
         return host
 
+
+def find_netbox_host(host):
+    """Return (device, vm) in NetBox that owns ``host`` (an IP or a name).
+
+    Used to link a backup server config to the NetBox object of the machine
+    it runs on. Either or both may be None.
+    """
+    import ipaddress
+
+    from dcim.models import Device
+    from ipam.models import IPAddress
+    from virtualization.models import VirtualMachine
+
+    host = (host or "").strip()
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    host = host.split("/")[0]
+    if host.count(":") == 1:
+        host = host.split(":")[0]
+    if not host:
+        return None, None
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        device = Device.objects.filter(name__iexact=host).first()
+        vm = None if device else VirtualMachine.objects.filter(name__iexact=host).first()
+        return device, vm
+
+    for ip in IPAddress.objects.filter(address__net_host=host):
+        parent = getattr(ip.assigned_object, "parent_object", None)
+        if isinstance(parent, Device):
+            return parent, None
+        if isinstance(parent, VirtualMachine):
+            return None, parent
+    return None, None
+
+
+class VeeamServerConfig(SecretMaskMixin, NetBoxModel):
+    """Veeam Backup & Replication server, read over WinRM + Veeam PowerShell.
+
+    Community Edition blocks the job/session endpoints of the VBR REST API,
+    so job results are collected by running the Veeam PowerShell module on
+    the server instead.
+    """
+
+    secret_fields = ("password",)
+
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    host = models.CharField(
+        max_length=200,
+        help_text="Veeam B&R server hostname or IP",
+    )
+    winrm_port = models.PositiveIntegerField(default=5985)
+    winrm_use_https = models.BooleanField(
+        default=False,
+        help_text="Use WinRM over HTTPS (usually port 5986)",
+    )
+    winrm_verify_ssl = models.BooleanField(default=False)
+    username = models.CharField(
+        max_length=150,
+        help_text="Windows account allowed to log on over WinRM (e.g. Administrator or DOMAIN\\user)",
+    )
+    password = EncryptedTextField()
+    netbox_device = models.ForeignKey(
+        "dcim.Device",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="veeam_server_configs",
+        help_text="Physical NetBox device running Veeam (found by IP when left empty)",
+    )
+    netbox_vm = models.ForeignKey(
+        "virtualization.VirtualMachine",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="veeam_server_configs",
+        help_text="NetBox virtual machine running Veeam (found by IP when left empty)",
+    )
+    enabled = models.BooleanField(default=True)
+    sync_schedule = models.CharField(
+        max_length=20,
+        choices=SyncScheduleChoices,
+        default=SyncScheduleChoices.DISABLED,
+    )
+    last_sync = models.DateTimeField(null=True, blank=True)
+    last_sync_status = models.CharField(max_length=20, blank=True)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    failure_alerted = models.BooleanField(default=False)
+    server_info = models.JSONField(default=dict, blank=True)
+    job_summary = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Last session of every backup job, as of the last sync",
+    )
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Veeam Server Config"
+        verbose_name_plural = "Veeam Server Configs"
+
+    def __str__(self):
+        return self.name
+
+    def get_sync_schedule_color(self):
+        return {
+            'hourly': 'info',
+            'every_3h': 'info',
+            'every_6h': 'info',
+            'daily': 'secondary',
+            'weekly': 'secondary',
+        }.get(self.sync_schedule, 'secondary')
+
+    def get_absolute_url(self):
+        return reverse("plugins:pve_sync_plugin:veeamserverconfig", args=[self.pk])
+
+    def save(self, *args, **kwargs):
+        if not self.netbox_device_id and not self.netbox_vm_id:
+            self.netbox_device, self.netbox_vm = find_netbox_host(self.host)
+        super().save(*args, **kwargs)
+
+    @property
+    def netbox_object(self):
+        return self.netbox_device or self.netbox_vm
+
+    @property
+    def license(self):
+        return (self.server_info or {}).get("license") or {}
+
+    @property
+    def license_full(self):
+        lic = self.license
+        return bool(lic.get("licensed")) and lic.get("used", 0) >= lic.get("licensed")
+
+    @property
+    def repositories(self):
+        return (self.server_info or {}).get("repositories") or []
+
+    @property
+    def winrm_url(self):
+        scheme = "https" if self.winrm_use_https else "http"
+        return f"{scheme}://{self.host}:{self.winrm_port}/wsman"
+
+    @property
+    def failed_jobs(self):
+        return [j for j in self.job_summary or [] if j.get("result") in ("failed", "warning")]
+
+
+class VeeamBackupStatus(NetBoxModel):
+    """Latest Veeam backup of one VM on one Veeam server.
+
+    Kept apart from PveBackupStatus (PBS) so both sources are shown and
+    checked separately.
+    """
+
+    vm = models.ForeignKey(
+        "virtualization.VirtualMachine",
+        on_delete=models.CASCADE,
+        related_name="veeam_backup_statuses",
+    )
+    server = models.ForeignKey(
+        "VeeamServerConfig",
+        on_delete=models.CASCADE,
+        related_name="backup_statuses",
+    )
+    job_name = models.CharField(max_length=200, blank=True)
+    last_result = models.CharField(
+        max_length=20,
+        choices=VeeamResultChoices,
+        default=VeeamResultChoices.UNKNOWN,
+        help_text="Result of this VM in the job's last session",
+    )
+    last_run_start = models.DateTimeField(null=True, blank=True)
+    last_run_end = models.DateTimeField(null=True, blank=True)
+    last_run_reason = models.TextField(blank=True)
+    last_restore_point = models.DateTimeField(null=True, blank=True)
+    restore_point_type = models.CharField(max_length=50, blank=True)
+    restore_point_consistent = models.BooleanField(null=True, blank=True)
+    veeam_object_id = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        ordering = ["vm__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["vm", "server"], name="veeambackupstatus_unique_vm_server"),
+        ]
+        verbose_name = "Veeam Backup Status"
+        verbose_name_plural = "Veeam Backup Statuses"
+
+    def __str__(self):
+        return f"{self.vm.name} @ {self.server.name} - {self.last_result}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:pve_sync_plugin:veeambackupstatus", args=[self.pk])
+
+    def get_last_result_color(self):
+        return {
+            "success": "success",
+            "warning": "warning",
+            "failed": "danger",
+            "running": "primary",
+        }.get(self.last_result, "secondary")
+
+    @property
+    def backup_age_days(self):
+        if self.last_restore_point:
+            return (timezone.now() - self.last_restore_point).days
+        return None
+
+    @property
+    def is_stale(self):
+        from .utils import get_threshold
+
+        if not self.last_restore_point:
+            return True
+        days = get_threshold("backup_overdue_days_veeam")
+        return bool(days) and self.backup_age_days > days
+
+    @property
+    def has_problem(self):
+        return self.is_stale or self.last_result == VeeamResultChoices.FAILED
 
 
 class VmProvisioningLog(NetBoxModel):

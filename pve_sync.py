@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import json
+import html
 import hashlib
 import ipaddress
 from datetime import datetime
@@ -1959,7 +1960,7 @@ class OptimizedPVEToNetBoxSync:
             self.send_telegram_notification(msg)
 
     def check_backup_overdue(self, vm_id: str, vm_name: str, tag_names: List[str], netbox_cluster_id: int):
-        """標記了「監控標籤」的 VM（需定期備份）若已逾期 7 天未備份（或從未
+        """標記了「監控標籤」的 VM（需定期備份）若已逾期未備份（天數於 Settings 設定，預設 7 天；或從未
         備份過），發送備份異常通知 —— 走獨立的備份告警 Telegram 群組，與
         一般同步通知分流，避免大量同步訊息把真正需要人工處理的備份告警淹沒。
 
@@ -1980,31 +1981,47 @@ class OptimizedPVEToNetBoxSync:
         if watch_tag.lower() not in tags_lower:
             return
         try:
-            from pve_sync_plugin.models import PveBackupStatus
+            from pve_sync_plugin.models import PveBackupStatus, VeeamBackupStatus
         except Exception:
             return
         try:
-            backup = PveBackupStatus.objects.filter(
-                vm__serial=str(vm_id), vm__cluster_id=netbox_cluster_id
-            ).first()
+            vm_filter = {'vm__serial': str(vm_id), 'vm__cluster_id': netbox_cluster_id}
+            backup = PveBackupStatus.objects.filter(**vm_filter).first()
+            veeam_backups = list(VeeamBackupStatus.objects.filter(**vm_filter).select_related('server'))
         except Exception as e:
             print(f"  ⚠ 無法查詢備份狀態: {e}")
             return
 
-        age_days = backup.backup_age_days if backup else None
-        if age_days is not None and age_days <= 7:
+        # PBS 與 Veeam 分開判斷：VM 在哪個來源有備份記錄，就檢查那個來源；
+        # 兩邊都沒有記錄才算「從未備份」。
+        problems = []
+        pbs_age = backup.backup_age_days if backup and backup.last_backup else None
+        if pbs_age is not None and backup.is_stale:
+            problems.append(f"PBS：已 {pbs_age} 天未備份")
+        for vb in veeam_backups:
+            label = f"Veeam（{vb.server.name}）"
+            if vb.last_restore_point is None:
+                problems.append(f"{label}：沒有還原點")
+            elif vb.is_stale:
+                problems.append(f"{label}：已 {vb.backup_age_days} 天未備份")
+            if vb.last_result == 'failed':
+                reason = f"，{vb.last_run_reason[:100]}" if vb.last_run_reason else ""
+                problems.append(f"{label}：最後一次備份失敗{reason}")
+        if pbs_age is None and not veeam_backups:
+            problems.append("從未有備份記錄（PBS 與 Veeam 皆無）")
+        if not problems:
             return
 
         self.stats['backup_overdue_alerts'] = self.stats.get('backup_overdue_alerts', 0) + 1
-        age_desc = '從未有備份記錄' if age_days is None else f'已 {age_days} 天未備份'
-        print(f"🗄️ VM {vm_name} 備份逾期: {age_desc}")
+        print(f"🗄️ VM {vm_name} 備份異常: {'; '.join(problems)}")
         msg = (
             f"🗄️ <b>VM 備份逾期警告</b>\n\n"
-            f"🖥️ 名稱: <b>{vm_name}</b> (ID: {vm_id})\n"
+            f"🖥️ 名稱: <b>{html.escape(vm_name)}</b> (ID: {vm_id})\n"
             f"🔀 叢集: {self.cluster_name}\n"
             f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            f"⏰ {age_desc}（標記 {watch_tag}，需定期備份）\n"
-            f"⚠️ 請確認 PBS 備份任務是否正常執行。"
+            + "\n".join(f"⏰ {html.escape(p)}" for p in problems) +
+            f"\n（標記 {watch_tag}，需定期備份）\n"
+            f"⚠️ 請確認 PBS / Veeam 備份任務是否正常執行。"
         )
         self.send_telegram_notification(msg, chat_id=getattr(self, 'telegram_chat_id_backup', None))
 
