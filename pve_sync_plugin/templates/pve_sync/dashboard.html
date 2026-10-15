@@ -153,18 +153,27 @@
                 <div class="text-muted small">{{ c.pve_host }}</div>
               </td>
               <td class="text-center">
-                <span class="fw-semibold">{{ c.stat_nodes }}</span>
+                {% if c.netbox_cluster_id %}
+                  <a href="/dcim/devices/?cluster_id={{ c.netbox_cluster_id }}" class="fw-semibold" title="查看此叢集的節點">{{ c.stat_nodes }}</a>
+                {% else %}
+                  <span class="fw-semibold">{{ c.stat_nodes }}</span>
+                {% endif %}
                 {% if c.stat_nodes_online < c.stat_nodes %}
-                  <br><span class="badge text-bg-danger">
+                  <br><a href="/dcim/devices/?cluster_id={{ c.netbox_cluster_id }}&status__n=active" class="badge text-bg-danger text-decoration-none" title="查看未上線的節點">
                     <i class="mdi mdi-alert-circle"></i> {{ c.stat_nodes_online }}/{{ c.stat_nodes }} 上線
-                  </span>
+                  </a>
                 {% else %}
                   <br><span class="text-success small"><i class="mdi mdi-check-all"></i> 全上線</span>
                 {% endif %}
               </td>
               <td class="text-center">
-                <span class="fw-semibold">{{ c.stat_vms }}</span>
-                <br><span class="text-success small"><i class="mdi mdi-play"></i> {{ c.stat_vms_running }}</span>
+                {% if c.netbox_cluster_id %}
+                  <a href="/virtualization/virtual-machines/?cluster_id={{ c.netbox_cluster_id }}" class="fw-semibold" title="查看此叢集的 VM">{{ c.stat_vms }}</a>
+                  <br><a href="/virtualization/virtual-machines/?cluster_id={{ c.netbox_cluster_id }}&status=active" class="text-success small text-decoration-none" title="查看執行中的 VM"><i class="mdi mdi-play"></i> {{ c.stat_vms_running }}</a>
+                {% else %}
+                  <span class="fw-semibold">{{ c.stat_vms }}</span>
+                  <br><span class="text-success small"><i class="mdi mdi-play"></i> {{ c.stat_vms_running }}</span>
+                {% endif %}
               </td>
               <td>
                 <a href="{% url 'plugins:pve_sync_plugin:pveclusterconfig_edit' c.pk %}" title="編輯排程">
