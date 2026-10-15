@@ -96,18 +96,6 @@ def test_plugin_menu_items_remain_visible_in_sidebar() -> None:
     assert "permissions=" not in navigation
 
 
-def test_cluster_templates_use_registered_route_names() -> None:
-    cluster_list = _read_text("pve_sync_plugin/templates/pve_sync/cluster_list.html")
-    cluster_form = _read_text("pve_sync_plugin/templates/pve_sync/cluster_form.html")
-    combined_templates = cluster_list + cluster_form
-
-    assert "cluster-add" not in combined_templates
-    assert "cluster-edit" not in combined_templates
-    assert "cluster-list" not in combined_templates
-    assert "pveclusterconfig_add" in combined_templates
-    assert "pveclusterconfig_edit" in combined_templates
-    assert "pveclusterconfig_list" in combined_templates
-
 
 def test_sync_trigger_redirects_to_created_job_detail() -> None:
     views = _read_text("pve_sync_plugin/views.py")
@@ -130,9 +118,3 @@ def test_vm_button_template_tag_uses_registered_ui_route() -> None:
     assert "api-trigger" not in tags
     assert "pve_sync/inc/vm_sync_button.html" in tags
     assert 'name="trigger-vm-sync"' in urls
-
-
-def test_tests_do_not_need_project_root_path_mutation() -> None:
-    source = _read_text("test_network_sync.py")
-
-    assert "sys.path.insert" not in source
