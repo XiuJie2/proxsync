@@ -37,6 +37,8 @@ from .filtersets import (
     VeeamServerConfigFilterSet,
 )
 from .forms import (
+    PbsBackupSettingsForm,
+    VeeamBackupSettingsForm,
     PbsBackupStatusFilterForm,
     PbsServerConfigFilterForm,
     PbsServerConfigForm,
@@ -583,6 +585,54 @@ class PvePluginSettingsView(PermissionRequiredMixin, View):
             messages.success(request, "Proxmox Sync settings saved.")
             return redirect(reverse("plugins:pve_sync_plugin:settings"))
         return render(request, "pve_sync/settings.html", {"form": form})
+
+
+class _BackupSettingsView(PermissionRequiredMixin, View):
+    """Edit one backup product's thresholds on a page of its own."""
+
+    permission_required = "pve_sync_plugin.change_pvepluginsettings"
+    form_class = None
+    url_name = None
+    title = ""
+    icon = ""
+    list_url_name = None
+
+    def _render(self, request, form):
+        settings_obj = PvePluginSettings.load()
+        return render(request, "pve_sync/backup_settings.html", {
+            "form": form,
+            "title": self.title,
+            "icon": self.icon,
+            "list_url": reverse(f"plugins:pve_sync_plugin:{self.list_url_name}"),
+            "settings_obj": settings_obj,
+        })
+
+    def get(self, request):
+        return self._render(request, self.form_class(instance=PvePluginSettings.load()))
+
+    def post(self, request):
+        form = self.form_class(request.POST, instance=PvePluginSettings.load())
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"{self.title}已儲存。")
+            return redirect(reverse(f"plugins:pve_sync_plugin:{self.url_name}"))
+        return self._render(request, form)
+
+
+class PbsBackupSettingsView(_BackupSettingsView):
+    form_class = PbsBackupSettingsForm
+    url_name = "settings-pbs"
+    title = "PBS 備份設定"
+    icon = "mdi-database-check"
+    list_url_name = "pbsserverconfig_list"
+
+
+class VeeamBackupSettingsView(_BackupSettingsView):
+    form_class = VeeamBackupSettingsForm
+    url_name = "settings-veeam"
+    title = "Veeam 備份設定"
+    icon = "mdi-shield-sync"
+    list_url_name = "veeamserverconfig_list"
 
 
 # ============================================================================

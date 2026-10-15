@@ -36,21 +36,16 @@
       </div>
 
       <div class="card mb-3">
-        <h5 class="card-header">Backup Monitoring</h5>
+        <h5 class="card-header">備份監控（PBS / Veeam 共用）</h5>
         <div class="card-body">
           {% render_field form.backup_watch_tag %}
           {% render_field form.backup_ignore_tag %}
-          {% render_field form.backup_overdue_days_pbs %}
-          {% render_field form.backup_overdue_days_veeam %}
-        </div>
-      </div>
-
-      <div class="card mb-3">
-        <h5 class="card-header">Backup Server Alerts</h5>
-        <div class="card-body">
-          {% render_field form.veeam_job_not_run_hours %}
-          {% render_field form.veeam_repo_free_percent %}
           {% render_field form.sync_failure_alert_count %}
+          <div class="small text-muted">
+            逾期天數等門檻請到
+            <a href="{% url 'plugins:pve_sync_plugin:settings-pbs' %}">PBS 備份設定</a> 或
+            <a href="{% url 'plugins:pve_sync_plugin:settings-veeam' %}">Veeam 備份設定</a>。
+          </div>
         </div>
       </div>
 

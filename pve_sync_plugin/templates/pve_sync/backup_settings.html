@@ -1,0 +1,65 @@
+{% extends 'base/layout.html' %}
+{% load helpers %}
+{% load form_helpers %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col">
+    <h1><i class="mdi {{ icon }} text-primary"></i> {{ title }}</h1>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-6">
+    <form method="post">
+      {% csrf_token %}
+      <div class="card mb-3">
+        <h5 class="card-header">告警門檻</h5>
+        <div class="card-body">
+          {% for field in form.visible_fields %}
+            {% render_field field %}
+          {% endfor %}
+        </div>
+      </div>
+      <div class="text-end">
+        <button type="submit" class="btn btn-primary">
+          <i class="mdi mdi-content-save"></i> 儲存
+        </button>
+        <a href="{% url 'plugins:pve_sync_plugin:dashboard' %}" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card mb-3">
+      <h5 class="card-header">PBS / Veeam 共用設定</h5>
+      <table class="table table-hover attr-table mb-0">
+        <tr>
+          <th scope="row">監控標籤</th>
+          <td>{% if settings_obj.backup_watch_tag %}<code>{{ settings_obj.backup_watch_tag }}</code>{% else %}<span class="text-muted">未設定（不發逾期告警）</span>{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">忽略標籤</th>
+          <td>{% if settings_obj.backup_ignore_tag %}<code>{{ settings_obj.backup_ignore_tag }}</code>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">同步連續失敗告警</th>
+          <td>{% if settings_obj.sync_failure_alert_count %}{{ settings_obj.sync_failure_alert_count }} 次{% else %}<span class="text-muted">不告警</span>{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">備份告警群組</th>
+          <td>{% if settings_obj.telegram_chat_id_backup %}<code>{{ settings_obj.telegram_chat_id_backup }}</code>{% else %}<span class="text-muted">使用一般通知群組</span>{% endif %}</td>
+        </tr>
+      </table>
+      <div class="card-footer small text-muted">
+        這些設定 PBS 和 Veeam 共用，請到 <a href="{% url 'plugins:pve_sync_plugin:settings' %}">Settings</a> 修改。
+      </div>
+    </div>
+    <a href="{{ list_url }}" class="btn btn-sm btn-outline-secondary">
+      <i class="mdi mdi-server"></i> 伺服器列表
+    </a>
+  </div>
+</div>
+{% endblock %}

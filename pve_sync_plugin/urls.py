@@ -33,6 +33,8 @@ urlpatterns = [
 
     # Plugin settings (singleton)
     path("settings/", views.PvePluginSettingsView.as_view(), name="settings"),
+    path("settings/pbs/", views.PbsBackupSettingsView.as_view(), name="settings-pbs"),
+    path("settings/veeam/", views.VeeamBackupSettingsView.as_view(), name="settings-veeam"),
 
     # --- PveSyncJob CRUD ---
     path("jobs/", views.PveSyncJobListView.as_view(), name="pvesyncjob_list"),

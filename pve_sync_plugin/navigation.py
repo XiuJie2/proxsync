@@ -61,6 +61,16 @@ veeam_backup_item = PluginMenuItem(
     link_text="Backup Status (Veeam)",
 )
 
+pbs_settings_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:settings-pbs",
+    link_text="PBS Backup Settings",
+)
+
+veeam_settings_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:settings-veeam",
+    link_text="Veeam Backup Settings",
+)
+
 settings_item = PluginMenuItem(
     link="plugins:pve_sync_plugin:settings",
     link_text="Settings",
@@ -124,7 +134,7 @@ menu = PluginMenu(
         ),
         (
             "Configuration",
-            (clusters_item, pbs_item, veeam_item, settings_item),
+            (clusters_item, pbs_item, veeam_item, pbs_settings_item, veeam_settings_item, settings_item),
         ),
     ),
     icon_class="mdi mdi-hexagon-multiple",

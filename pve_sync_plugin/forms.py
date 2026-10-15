@@ -61,10 +61,6 @@ class PvePluginSettingsForm(NetBoxModelForm):
             "webhook_secret",
             "backup_watch_tag",
             "backup_ignore_tag",
-            "backup_overdue_days_pbs",
-            "backup_overdue_days_veeam",
-            "veeam_job_not_run_hours",
-            "veeam_repo_free_percent",
             "sync_failure_alert_count",
             "default_cluster_name",
             "default_netbox_cluster",
@@ -75,6 +71,9 @@ class PvePluginSettingsForm(NetBoxModelForm):
             "state_db_path",
             "enable_backup_sync",
         )
+        labels = {
+            "sync_failure_alert_count": "同步連續失敗告警次數",
+        }
         help_texts = {
             "netbox_url": "NetBox base URL (e.g. https://netbox.example.com)",
             "netbox_token": "NetBox API token with write permissions",
@@ -97,13 +96,6 @@ class PvePluginSettingsForm(NetBoxModelForm):
                 "(case-insensitive) — for VMs that don't need backups."
             ),
             "state_db_path": "Path to SQLite state database for incremental sync",
-            "backup_overdue_days_pbs": "PBS 超過幾天沒有新備份視為逾期（0 = 不檢查）",
-            "backup_overdue_days_veeam": "Veeam 超過幾天沒有新還原點視為逾期（0 = 不檢查）",
-            "veeam_job_not_run_hours": (
-                "已啟用的 Veeam 備份任務超過幾小時沒有執行就告警（0 = 不檢查）。"
-                "每日任務建議 26，每週任務請設大於 168。"
-            ),
-            "veeam_repo_free_percent": "Veeam Repository 剩餘空間低於幾 % 就告警（0 = 不檢查）",
             "sync_failure_alert_count": "PBS / Veeam 同步連續失敗幾次就告警，恢復後會再通知一次（0 = 不告警）",
         }
 
@@ -114,6 +106,48 @@ class PvePluginSettingsForm(NetBoxModelForm):
 
         clear_plugin_config_cache()
         return instance
+
+
+class _BackupSettingsForm(forms.ModelForm):
+    """Edits a few PvePluginSettings fields on a page of their own."""
+
+    def save(self, *args, **kwargs):
+        instance = super().save(*args, **kwargs)
+        from .utils import clear_plugin_config_cache
+
+        clear_plugin_config_cache()
+        return instance
+
+
+class PbsBackupSettingsForm(_BackupSettingsForm):
+    class Meta:
+        model = PvePluginSettings
+        fields = ("backup_overdue_days_pbs",)
+        labels = {
+            "backup_overdue_days_pbs": "備份逾期天數",
+        }
+        help_texts = {
+            "backup_overdue_days_pbs": "PBS 超過幾天沒有新備份視為逾期（0 = 不檢查）",
+        }
+
+
+class VeeamBackupSettingsForm(_BackupSettingsForm):
+    class Meta:
+        model = PvePluginSettings
+        fields = ("backup_overdue_days_veeam", "veeam_job_not_run_hours", "veeam_repo_free_percent")
+        labels = {
+            "backup_overdue_days_veeam": "備份逾期天數",
+            "veeam_job_not_run_hours": "任務未執行告警（小時）",
+            "veeam_repo_free_percent": "Repository 剩餘空間告警（%）",
+        }
+        help_texts = {
+            "backup_overdue_days_veeam": "Veeam 超過幾天沒有新還原點視為逾期（0 = 不檢查）",
+            "veeam_job_not_run_hours": (
+                "已啟用的 Veeam 備份任務超過幾小時沒有執行就告警（0 = 不檢查）。"
+                "每日任務建議 26，每週任務請設大於 168。"
+            ),
+            "veeam_repo_free_percent": "Veeam Repository 剩餘空間低於幾 % 就告警（0 = 不檢查）",
+        }
 
 
 class PveClusterConfigForm(NetBoxModelForm):
