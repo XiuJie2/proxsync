@@ -51,6 +51,11 @@ backup_status_item = PluginMenuItem(
     link_text="Backup Status (PBS)",
 )
 
+pbs_server_backup_item = PluginMenuItem(
+    link="plugins:pve_sync_plugin:pbsbackupstatus_list",
+    link_text="Backup Status (PBS per server)",
+)
+
 veeam_backup_item = PluginMenuItem(
     link="plugins:pve_sync_plugin:veeambackupstatus_list",
     link_text="Backup Status (Veeam)",
@@ -111,7 +116,7 @@ menu = PluginMenu(
         ),
         (
             "Data Protection",
-            (backup_status_item, veeam_backup_item),
+            (backup_status_item, pbs_server_backup_item, veeam_backup_item),
         ),
         (
             "VM Operations",

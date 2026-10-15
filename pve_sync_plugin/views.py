@@ -25,6 +25,7 @@ import hashlib
 from netbox.context import current_request as _nb_current_request
 
 from .filtersets import (
+    PbsBackupStatusFilterSet,
     PbsServerConfigFilterSet,
     PveBackupStatusFilterSet,
     PveClusterConfigFilterSet,
@@ -36,6 +37,7 @@ from .filtersets import (
     VeeamServerConfigFilterSet,
 )
 from .forms import (
+    PbsBackupStatusFilterForm,
     PbsServerConfigFilterForm,
     PbsServerConfigForm,
     PveClusterConfigFilterForm,
@@ -49,6 +51,7 @@ from .forms import (
     VeeamServerConfigForm,
 )
 from .models import (
+    PbsBackupStatus,
     PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
@@ -62,6 +65,7 @@ from .models import (
     VmProvisioningLog,
 )
 from .tables import (
+    PbsBackupStatusTable,
     PbsServerConfigTable,
     PveBackupStatusTable,
     PveClusterConfigTable,
@@ -93,8 +97,27 @@ class DashboardView(PermissionRequiredMixin, View):
 
     def get(self, request):
         clusters = PveClusterConfig.objects.filter(enabled=True).select_related("netbox_cluster", "netbox_site")
-        pbs_servers = PbsServerConfig.objects.filter(enabled=True).select_related("netbox_site", "netbox_device")
         pbs_overdue_days = get_threshold("backup_overdue_days_pbs")
+        pbs_stale = Q(backup_statuses__last_backup__isnull=True)
+        if pbs_overdue_days:
+            pbs_stale |= Q(
+                backup_statuses__last_backup__lt=timezone.now() - timezone.timedelta(days=pbs_overdue_days)
+            )
+        pbs_servers = PbsServerConfig.objects.filter(enabled=True).select_related(
+            "netbox_site", "netbox_device"
+        ).annotate(
+            vm_count=Count("backup_statuses", distinct=True),
+            vm_stale_count=Count("backup_statuses", filter=pbs_stale, distinct=True),
+        )
+        # Datastores the last sync could not read (the sync itself still succeeds).
+        for pbs in pbs_servers:
+            last_job = (
+                PveSyncJob.objects.filter(cluster_name=f"pbs:{pbs.name}", status="success")
+                .order_by("-start_time")
+                .only("details")
+                .first()
+            )
+            pbs.backup_errors = (last_job.details or {}).get("backup_errors", []) if last_job else []
         veeam_overdue_days = get_threshold("backup_overdue_days_veeam")
         # 0 disables the check: use a cutoff no restore point can be older than.
         stale_cutoff = (
@@ -296,6 +319,20 @@ class PbsServerConfigView(generic.ObjectView):
     queryset = PbsServerConfig.objects.all()
     template_name = "pve_sync/pbsserverconfig.html"
 
+    def get_extra_context(self, request, instance):
+        last_job = (
+            PveSyncJob.objects.filter(cluster_name=f"pbs:{instance.name}", status="success")
+            .order_by("-start_time")
+            .first()
+        )
+        statuses = PbsBackupStatus.objects.filter(server=instance)
+        return {
+            "backup_vm_count": statuses.count(),
+            "backup_stale_count": PbsBackupStatusFilterSet({"stale": True}, statuses).qs.count(),
+            "backup_errors": (last_job.details or {}).get("backup_errors", []) if last_job else [],
+            "last_backup_job": last_job,
+        }
+
 
 class PbsServerConfigEditView(generic.ObjectEditView):
     queryset = PbsServerConfig.objects.all()
@@ -420,6 +457,27 @@ class TriggerVeeamSyncView(PermissionRequiredMixin, View):
         return redirect(
             request.POST.get("return_url") or reverse("plugins:pve_sync_plugin:dashboard")
         )
+
+
+class PbsBackupStatusListView(generic.ObjectListView):
+    queryset = PbsBackupStatus.objects.select_related("vm", "server")
+    table = PbsBackupStatusTable
+    filterset = PbsBackupStatusFilterSet
+    filterset_form = PbsBackupStatusFilterForm
+
+
+class PbsBackupStatusView(generic.ObjectView):
+    queryset = PbsBackupStatus.objects.select_related("vm", "server")
+    template_name = "pve_sync/pbsbackupstatus.html"
+
+
+class PbsBackupStatusDeleteView(generic.ObjectDeleteView):
+    queryset = PbsBackupStatus.objects.all()
+
+
+class PbsBackupStatusBulkDeleteView(generic.BulkDeleteView):
+    queryset = PbsBackupStatus.objects.all()
+    table = PbsBackupStatusTable
 
 
 class VeeamBackupStatusListView(generic.ObjectListView):

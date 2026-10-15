@@ -18,6 +18,7 @@ from .choices import (
     WebhookEventChoices,
 )
 from .models import (
+    PbsBackupStatus,
     PbsServerConfig,
     PveClusterConfig,
     PveDriftEvent,
@@ -337,6 +338,19 @@ class VeeamServerConfigFilterForm(NetBoxModelFilterSetForm):
     model = VeeamServerConfig
 
     enabled = forms.NullBooleanField(required=False)
+
+
+class PbsBackupStatusFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for per-server PBS backup list views."""
+
+    model = PbsBackupStatus
+
+    server_id = forms.ModelMultipleChoiceField(
+        queryset=PbsServerConfig.objects.all(),
+        required=False,
+        label="PBS Server",
+    )
+    stale = forms.NullBooleanField(required=False, label="Stale (overdue)")
 
 
 class VeeamBackupStatusFilterForm(NetBoxModelFilterSetForm):

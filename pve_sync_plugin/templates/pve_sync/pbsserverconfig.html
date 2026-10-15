@@ -60,6 +60,27 @@
             {% endif %}
           </td>
         </tr>
+        <tr>
+          <th scope="row">已同步 VM</th>
+          <td>
+            <a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ object.pk }}">{{ backup_vm_count }}</a>
+            {% if backup_stale_count %}
+              <a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ object.pk }}&stale=true" class="badge text-bg-warning text-decoration-none ms-1">{{ backup_stale_count }} 台逾期</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% if backup_errors %}
+        <tr>
+          <th scope="row">讀取錯誤</th>
+          <td>
+            <span class="badge text-bg-danger">{{ backup_errors|length }} 個 datastore 無法讀取</span>
+            <ul class="small mb-0 mt-1 ps-3">
+              {% for err in backup_errors %}<li><code>{{ err }}</code></li>{% endfor %}
+            </ul>
+            <div class="small text-muted">來自 <a href="{{ last_backup_job.get_absolute_url }}">同步任務 #{{ last_backup_job.pk }}</a></div>
+          </td>
+        </tr>
+        {% endif %}
         {% if object.consecutive_failures %}
         <tr>
           <th scope="row">Consecutive Failures</th>

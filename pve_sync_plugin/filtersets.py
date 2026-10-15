@@ -19,6 +19,7 @@ from .choices import (
     WebhookEventChoices,
 )
 from .models import (
+    PbsBackupStatus,
     PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
@@ -159,14 +160,52 @@ class PveBackupStatusFilterSet(NetBoxModelFilterSet):
         choices=BackupStatusChoices.choices
     )
 
+    overdue = django_filters.BooleanFilter(method="filter_overdue")
+
     class Meta:
         model = PveBackupStatus
         fields = ["id", "backup_status"]
+
+    def filter_overdue(self, queryset, name, value):
+        """Backups older than the PBS threshold (VMs never backed up are not counted)."""
+        overdue = _pbs_overdue_q()
+        return queryset.filter(overdue) if value else queryset.exclude(overdue)
 
     def search(self, queryset, name, value):
         if not value.strip():
             return queryset
         return queryset.filter(vm__name__icontains=value)
+
+
+def _pbs_overdue_q():
+    from .utils import get_threshold
+
+    days = get_threshold("backup_overdue_days_pbs")
+    if not days:
+        return Q(pk__in=[])
+    return Q(last_backup__lt=timezone.now() - datetime.timedelta(days=days))
+
+
+class PbsBackupStatusFilterSet(NetBoxModelFilterSet):
+    """Filter per-server PBS backups by server and staleness."""
+
+    server_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=PbsServerConfig.objects.all(),
+    )
+    stale = django_filters.BooleanFilter(method="filter_stale")
+
+    class Meta:
+        model = PbsBackupStatus
+        fields = ["id", "vm_id", "pve_backup_id"]
+
+    def filter_stale(self, queryset, name, value):
+        stale = _pbs_overdue_q() | Q(last_backup__isnull=True)
+        return queryset.filter(stale) if value else queryset.exclude(stale)
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(Q(vm__name__icontains=value) | Q(pve_backup_id__icontains=value))
 
 
 class VeeamServerConfigFilterSet(NetBoxModelFilterSet):

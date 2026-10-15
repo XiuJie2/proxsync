@@ -10,7 +10,7 @@ from django.urls import path
 from netbox.views.generic import ObjectChangeLogView
 
 from . import views
-from .models import PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveVmTaskLog, PveWebhookEvent, VeeamBackupStatus, VeeamServerConfig, VmProvisioningLog
+from .models import PbsBackupStatus, PbsServerConfig, PveBackupStatus, PveClusterConfig, PveDriftEvent, PveSyncJob, PveVmTaskLog, PveWebhookEvent, VeeamBackupStatus, VeeamServerConfig, VmProvisioningLog
 
 app_name = "pve_sync_plugin"
 
@@ -182,6 +182,26 @@ urlpatterns = [
         ObjectChangeLogView.as_view(),
         name="veeamserverconfig_changelog",
         kwargs={"model": VeeamServerConfig},
+    ),
+
+    # --- PbsBackupStatus (per PBS server) ---
+    path("pbs-backups/", views.PbsBackupStatusListView.as_view(), name="pbsbackupstatus_list"),
+    path("pbs-backups/<int:pk>/", views.PbsBackupStatusView.as_view(), name="pbsbackupstatus"),
+    path(
+        "pbs-backups/<int:pk>/delete/",
+        views.PbsBackupStatusDeleteView.as_view(),
+        name="pbsbackupstatus_delete",
+    ),
+    path(
+        "pbs-backups/delete/",
+        views.PbsBackupStatusBulkDeleteView.as_view(),
+        name="pbsbackupstatus_bulk_delete",
+    ),
+    path(
+        "pbs-backups/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="pbsbackupstatus_changelog",
+        kwargs={"model": PbsBackupStatus},
     ),
 
     # --- VeeamBackupStatus ---

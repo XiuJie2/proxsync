@@ -5,6 +5,7 @@ import django_tables2 as tables
 from netbox.tables import NetBoxTable, columns
 
 from .models import (
+    PbsBackupStatus,
     PbsServerConfig,
     PveBackupStatus,
     PveClusterConfig,
@@ -279,6 +280,43 @@ class PveBackupStatusTable(NetBoxTable):
             "id",
             "vm",
             "backup_status",
+            "last_backup",
+            "backup_age_days",
+        )
+
+
+class PbsBackupStatusTable(NetBoxTable):
+    """Table for per-server PBS backup tracking."""
+
+    id = tables.Column(linkify=True)
+    vm = tables.Column(linkify=True, verbose_name="Virtual Machine")
+    server = tables.Column(linkify=True, verbose_name="PBS Server")
+    pve_backup_id = tables.Column(verbose_name="Backup Group")
+    last_backup = columns.DateTimeColumn(verbose_name="Last Backup")
+    backup_age_days = tables.Column(
+        accessor="backup_age_days",
+        verbose_name="Age (days)",
+        orderable=False,
+    )
+    actions = columns.ActionsColumn(actions=("delete", "changelog"))
+
+    class Meta(NetBoxTable.Meta):
+        model = PbsBackupStatus
+        fields = (
+            "pk",
+            "id",
+            "vm",
+            "server",
+            "pve_backup_id",
+            "backup_path",
+            "last_backup",
+            "backup_age_days",
+            "backup_size",
+        )
+        default_columns = (
+            "vm",
+            "server",
+            "pve_backup_id",
             "last_backup",
             "backup_age_days",
         )

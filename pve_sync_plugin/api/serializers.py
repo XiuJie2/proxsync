@@ -5,6 +5,7 @@ from rest_framework import serializers
 from netbox.api.serializers import NetBoxModelSerializer
 
 from pve_sync_plugin.models import (
+    PbsBackupStatus,
     PveBackupStatus,
     PveClusterConfig,
     PvePluginSettings,
@@ -217,6 +218,23 @@ class VeeamServerConfigSerializer(NetBoxModelSerializer):
         extra_kwargs = {
             "password": {"write_only": True},
         }
+
+
+class PbsBackupStatusSerializer(NetBoxModelSerializer):
+    url = serializers.HyperlinkedIdentityField(
+        view_name="plugins-api:pve_sync_plugin-api:pbsbackupstatus-detail",
+    )
+    backup_age_days = serializers.IntegerField(read_only=True)
+    is_stale = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = PbsBackupStatus
+        fields = [
+            "id", "url", "display",
+            "vm", "server", "pve_backup_id", "backup_path",
+            "last_backup", "backup_size", "backup_age_days", "is_stale",
+            "created", "last_updated",
+        ]
 
 
 class VeeamBackupStatusSerializer(NetBoxModelSerializer):

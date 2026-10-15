@@ -23,6 +23,7 @@ router.register("backup-status", api_views.PveBackupStatusViewSet)
 router.register("settings", api_views.PvePluginSettingsViewSet)
 router.register("provisioning", api_views.VmProvisioningLogViewSet)
 router.register("task-logs", api_views.PveVmTaskLogViewSet)
+router.register("pbs-backup-status", api_views.PbsBackupStatusViewSet)
 router.register("veeam-servers", api_views.VeeamServerConfigViewSet)
 router.register("veeam-backup-status", api_views.VeeamBackupStatusViewSet)
 

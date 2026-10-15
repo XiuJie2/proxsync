@@ -295,6 +295,9 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
             backup_updated, backup_skipped, backup_ambiguous = _apply_pbs_backup_status(
                 backup_records,
                 snapshot_lookup=lambda info: _fetch_pbs_latest_snapshot(pbs, info),
+                server=pbs,
+                # A datastore that could not be read must not wipe its VMs.
+                prune=not backup_errors,
             )
             logger.info("PBS backup status: %d updated, %d no VM match", backup_updated, backup_skipped)
         except Exception as exc:
@@ -600,7 +603,7 @@ def _fetch_pbs_latest_snapshot(pbs, info):
     return result
 
 
-def _apply_pbs_backup_status(backup_records, snapshot_lookup=None):
+def _apply_pbs_backup_status(backup_records, snapshot_lookup=None, server=None, prune=False):
     """Write PBS backup data into PveBackupStatus Django model records.
 
     PBS only knows the VMID, and VMIDs repeat across PVE clusters. When several
@@ -611,12 +614,16 @@ def _apply_pbs_backup_status(backup_records, snapshot_lookup=None):
     ``snapshot_lookup(info)`` returns {'size', 'comment'} for the latest
     snapshot. It is only called for ambiguous VMIDs and for records that change.
 
+    With ``server`` set, that server's own copy is also kept in PbsBackupStatus;
+    ``prune`` then drops rows of VMs the server no longer has.
+
     Returns:
         (updated: int, skipped: int, ambiguous: list[str])
     """
-    from .models import PveBackupStatus
+    from .models import PbsBackupStatus, PveBackupStatus
     from virtualization.models import VirtualMachine
 
+    kept_vm_ids = set()
     updated = 0
     skipped = 0
     ambiguous = []
@@ -695,5 +702,20 @@ def _apply_pbs_backup_status(backup_records, snapshot_lookup=None):
                 "last_backup", "backup_size", "pve_backup_id", "backup_path", "backup_status",
             ])
             updated += 1
+
+        if server is not None:
+            kept_vm_ids.add(vm.pk)
+            server_status, _ = PbsBackupStatus.objects.get_or_create(vm=vm, server=server)
+            if server_status.last_backup != last_backup or server_status.pve_backup_id != pve_backup_id:
+                if not size and status_obj.last_backup == last_backup:
+                    size = status_obj.backup_size
+                server_status.last_backup = last_backup
+                server_status.pve_backup_id = pve_backup_id
+                server_status.backup_path = info.get("backup_path", "")
+                server_status.backup_size = size or None
+                server_status.save()
+
+    if server is not None and prune:
+        PbsBackupStatus.objects.filter(server=server).exclude(vm_id__in=kept_vm_ids).delete()
 
     return updated, skipped, ambiguous

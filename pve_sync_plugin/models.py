@@ -214,6 +214,58 @@ class PveBackupStatus(NetBoxModel):
         return bool(days) and self.backup_age_days > days
 
 
+class PbsBackupStatus(NetBoxModel):
+    """Latest backup of one VM on one PBS server.
+
+    PveBackupStatus keeps only the newest backup across all PBS servers; this
+    keeps each server's own copy so every server can be listed and checked.
+    """
+
+    vm = models.ForeignKey(
+        "virtualization.VirtualMachine",
+        on_delete=models.CASCADE,
+        related_name="pbs_backup_statuses",
+    )
+    server = models.ForeignKey(
+        "PbsServerConfig",
+        on_delete=models.CASCADE,
+        related_name="backup_statuses",
+    )
+    last_backup = models.DateTimeField(null=True, blank=True)
+    backup_size = models.BigIntegerField(null=True, blank=True)
+    backup_path = models.CharField(max_length=500, blank=True)
+    pve_backup_id = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        ordering = ["vm__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["vm", "server"], name="pbsbackupstatus_unique_vm_server"),
+        ]
+        verbose_name = "PBS Backup Status"
+        verbose_name_plural = "PBS Backup Statuses"
+
+    def __str__(self):
+        return f"{self.vm.name} @ {self.server.name}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:pve_sync_plugin:pbsbackupstatus", args=[self.pk])
+
+    @property
+    def backup_age_days(self):
+        if self.last_backup:
+            return (timezone.now() - self.last_backup).days
+        return None
+
+    @property
+    def is_stale(self):
+        from .utils import get_threshold
+
+        if not self.last_backup:
+            return True
+        days = get_threshold("backup_overdue_days_pbs")
+        return bool(days) and self.backup_age_days > days
+
+
 class PveDriftEvent(NetBoxModel):
     """Records a single configuration drift event detected during sync."""
 

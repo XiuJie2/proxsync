@@ -7,6 +7,7 @@ from rest_framework import status as drf_status
 from netbox.api.viewsets import NetBoxModelViewSet
 
 from pve_sync_plugin.filtersets import (
+    PbsBackupStatusFilterSet,
     PveBackupStatusFilterSet,
     PveClusterConfigFilterSet,
     PveSyncJobFilterSet,
@@ -15,6 +16,7 @@ from pve_sync_plugin.filtersets import (
     VeeamServerConfigFilterSet,
 )
 from pve_sync_plugin.models import (
+    PbsBackupStatus,
     PveBackupStatus,
     PveClusterConfig,
     PvePluginSettings,
@@ -27,6 +29,7 @@ from pve_sync_plugin.models import (
 )
 
 from .serializers import (
+    PbsBackupStatusSerializer,
     PveBackupStatusSerializer,
     PveClusterConfigSerializer,
     PvePluginSettingsSerializer,
@@ -118,6 +121,12 @@ class VeeamServerConfigViewSet(NetBoxModelViewSet):
     queryset = VeeamServerConfig.objects.all()
     serializer_class = VeeamServerConfigSerializer
     filterset_class = VeeamServerConfigFilterSet
+
+
+class PbsBackupStatusViewSet(NetBoxModelViewSet):
+    queryset = PbsBackupStatus.objects.select_related("vm", "server")
+    serializer_class = PbsBackupStatusSerializer
+    filterset_class = PbsBackupStatusFilterSet
 
 
 class VeeamBackupStatusViewSet(NetBoxModelViewSet):

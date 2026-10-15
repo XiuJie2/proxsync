@@ -237,6 +237,7 @@
           <thead class="table-light">
             <tr>
               <th>名稱</th>
+              <th class="text-center">已同步 VM</th>
               <th>排程</th>
               <th>上次同步</th>
               <th>狀態</th>
@@ -251,6 +252,21 @@
                 <div class="text-muted small">{{ pbs.display_host }}</div>
                 {% if pbs.netbox_device %}
                   <div class="small"><a href="{{ pbs.netbox_device.get_absolute_url }}" title="NetBox 設備"><i class="mdi mdi-server"></i> {{ pbs.netbox_device.name }}</a></div>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                <a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ pbs.pk }}" class="fw-semibold" title="查看此伺服器備份的 VM">{{ pbs.vm_count }}</a>
+                {% if pbs.vm_stale_count %}
+                  <br><a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ pbs.pk }}&stale=true" class="badge text-bg-warning text-decoration-none">
+                    <i class="mdi mdi-alert-circle"></i> {{ pbs.vm_stale_count }} 台逾期
+                  </a>
+                {% elif pbs.vm_count %}
+                  <br><span class="text-success small"><i class="mdi mdi-check-all"></i> 全部正常</span>
+                {% endif %}
+                {% if pbs.backup_errors %}
+                  <br><a href="{{ pbs.get_absolute_url }}" class="badge text-bg-danger text-decoration-none" title="{{ pbs.backup_errors|join:' / ' }}">
+                    <i class="mdi mdi-database-alert"></i> {{ pbs.backup_errors|length }} 個 datastore 無法讀取
+                  </a>
                 {% endif %}
               </td>
               <td>
@@ -416,7 +432,7 @@
         <ul class="list-group list-group-flush">
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span><i class="mdi mdi-backup-restore text-warning me-1"></i> PBS 備份逾期（&gt;{{ pbs_overdue_days }} 天）</span>
-            <a href="{% url 'plugins:pve_sync_plugin:pvebackupstatus_list' %}" class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ backup_alerts }}</a>
+            <a href="{% url 'plugins:pve_sync_plugin:pvebackupstatus_list' %}?overdue=true" class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span><i class="mdi mdi-shield-alert-outline text-warning me-1"></i> Veeam 備份異常（逾期 &gt;{{ veeam_overdue_days }} 天或失敗）</span>
