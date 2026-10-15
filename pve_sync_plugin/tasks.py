@@ -304,6 +304,14 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
             logger.warning("PBS backup status sync failed (non-fatal): %s", exc)
             backup_errors.append(str(exc))
 
+        overdue_alerted = None
+        try:
+            from .backup_alerts import send_pbs_overdue_alerts
+
+            overdue_alerted = send_pbs_overdue_alerts()
+        except Exception as exc:
+            logger.warning("PBS backup-overdue alerts failed (non-fatal): %s", exc)
+
         job.refresh_from_db()
         job.status = "success"
         job.end_time = timezone.now()
@@ -318,6 +326,8 @@ def run_pbs_sync_job(job_id, pbs_server_pk):
             # Surfaced on the job page: a "successful" sync that could not read
             # the backups must not look like "nothing new".
             job.details["backup_errors"] = backup_errors
+        if overdue_alerted is not None:
+            job.details["backup_overdue_alerted"] = overdue_alerted
         job.details.pop("heartbeat", None)
         job.save()
 
@@ -406,6 +416,13 @@ def run_veeam_sync_job(job_id, veeam_server_pk):
         alerts = notify_job_alerts(server, summary)
         server_info = summarize_server_info(data, previous=server.server_info)
         alerts += notify_repository_alerts(server, server_info)
+        overdue_alerted = None
+        try:
+            from .backup_alerts import send_veeam_overdue_alerts
+
+            overdue_alerted = send_veeam_overdue_alerts(server)
+        except Exception as exc:
+            logger.warning("Veeam backup-overdue alerts failed (non-fatal): %s", exc)
 
         job.refresh_from_db()
         job.status = "success"
@@ -416,6 +433,8 @@ def run_veeam_sync_job(job_id, veeam_server_pk):
             f"{j['name']} ({j['result']})" for j in summary if j["result"] in ("failed", "warning")
         ]
         job.details["veeam_alerts_sent"] = alerts
+        if overdue_alerted is not None:
+            job.details["backup_overdue_alerted"] = overdue_alerted
         job.details.pop("heartbeat", None)
         job.save()
 

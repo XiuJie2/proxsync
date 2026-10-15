@@ -16,7 +16,7 @@
     <form method="post">
       {% csrf_token %}
       <div class="card mb-3">
-        <h5 class="card-header">告警門檻</h5>
+        <h5 class="card-header">監控範圍與告警門檻</h5>
         <div class="card-body">
           {% for field in form.visible_fields %}
             {% render_field field %}

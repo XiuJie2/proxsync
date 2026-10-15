@@ -161,6 +161,7 @@ class PveBackupStatusFilterSet(NetBoxModelFilterSet):
     )
 
     overdue = django_filters.BooleanFilter(method="filter_overdue")
+    alerting = django_filters.BooleanFilter(method="filter_alerting")
 
     class Meta:
         model = PveBackupStatus
@@ -170,6 +171,13 @@ class PveBackupStatusFilterSet(NetBoxModelFilterSet):
         """Backups older than the PBS threshold (VMs never backed up are not counted)."""
         overdue = _pbs_overdue_q()
         return queryset.filter(overdue) if value else queryset.exclude(overdue)
+
+    def filter_alerting(self, queryset, name, value):
+        """VMs that get a PBS backup-overdue alert (the Dashboard count)."""
+        from .backup_alerts import pbs_alert_vms
+
+        alerted = Q(vm__in=pbs_alert_vms().values("pk"))
+        return queryset.filter(alerted) if value else queryset.exclude(alerted)
 
     def search(self, queryset, name, value):
         if not value.strip():
@@ -193,6 +201,7 @@ class PbsBackupStatusFilterSet(NetBoxModelFilterSet):
         queryset=PbsServerConfig.objects.all(),
     )
     stale = django_filters.BooleanFilter(method="filter_stale")
+    monitored = django_filters.BooleanFilter(method="filter_monitored")
 
     class Meta:
         model = PbsBackupStatus
@@ -201,6 +210,13 @@ class PbsBackupStatusFilterSet(NetBoxModelFilterSet):
     def filter_stale(self, queryset, name, value):
         stale = _pbs_overdue_q() | Q(last_backup__isnull=True)
         return queryset.filter(stale) if value else queryset.exclude(stale)
+
+    def filter_monitored(self, queryset, name, value):
+        """VMs monitored for PBS backups (watch tag, not ignore tag, monitored cluster)."""
+        from .backup_alerts import monitored_vms
+
+        monitored = Q(vm__in=monitored_vms("pbs").values("pk"))
+        return queryset.filter(monitored) if value else queryset.exclude(monitored)
 
     def search(self, queryset, name, value):
         if not value.strip():
@@ -234,6 +250,7 @@ class VeeamBackupStatusFilterSet(NetBoxModelFilterSet):
     last_result = django_filters.MultipleChoiceFilter(choices=VeeamResultChoices.choices)
     stale = django_filters.BooleanFilter(method="filter_stale")
     problem = django_filters.BooleanFilter(method="filter_problem")
+    alerting = django_filters.BooleanFilter(method="filter_alerting")
 
     class Meta:
         model = VeeamBackupStatus
@@ -256,6 +273,13 @@ class VeeamBackupStatusFilterSet(NetBoxModelFilterSet):
     def filter_problem(self, queryset, name, value):
         problem = self._stale_q() | Q(last_result=VeeamResultChoices.FAILED)
         return queryset.filter(problem) if value else queryset.exclude(problem)
+
+    def filter_alerting(self, queryset, name, value):
+        """Rows that get a Veeam backup alert (the Dashboard count)."""
+        from .backup_alerts import veeam_alert_statuses
+
+        alerted = Q(pk__in=veeam_alert_statuses().values("pk"))
+        return queryset.filter(alerted) if value else queryset.exclude(alerted)
 
     def search(self, queryset, name, value):
         if not value.strip():

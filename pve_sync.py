@@ -8,7 +8,6 @@ import os
 import sys
 import time
 import json
-import html
 import hashlib
 import ipaddress
 from datetime import datetime
@@ -48,7 +47,6 @@ class OptimizedPVEToNetBoxSync:
             'resources_alert': 0,
             'node_mismatch_alerts': 0,
             'no_ip_alerts': 0,
-            'backup_overdue_alerts': 0,
             'ip_conflict_alerts': 0,
             'power_state_alerts': 0,
             'total_vms': 0,
@@ -269,8 +267,6 @@ class OptimizedPVEToNetBoxSync:
             extras.append(f"📍 節點放置異常: {self.stats['node_mismatch_alerts']}")
         if self.stats.get('no_ip_alerts', 0) > 0:
             extras.append(f"🌐 運行中但無 IP: {self.stats['no_ip_alerts']}")
-        if self.stats.get('backup_overdue_alerts', 0) > 0:
-            extras.append(f"🗄️ 備份逾期: {self.stats['backup_overdue_alerts']}")
         if self.stats.get('ip_conflict_alerts', 0) > 0:
             extras.append(f"🚨 IP 衝突: {self.stats['ip_conflict_alerts']}")
         if self.stats.get('power_state_alerts', 0) > 0:
@@ -1959,72 +1955,6 @@ class OptimizedPVEToNetBoxSync:
             )
             self.send_telegram_notification(msg)
 
-    def check_backup_overdue(self, vm_id: str, vm_name: str, tag_names: List[str], netbox_cluster_id: int):
-        """標記了「監控標籤」的 VM（需定期備份）若已逾期未備份（天數於 Settings 設定，預設 7 天；或從未
-        備份過），發送備份異常通知 —— 走獨立的備份告警 Telegram 群組，與
-        一般同步通知分流，避免大量同步訊息把真正需要人工處理的備份告警淹沒。
-
-        監控標籤與忽略標籤皆可在 Settings 頁面設定（預設 0N / NO-Backup）：
-        - 監控標籤留空 = 完全停用備份逾期監控。
-        - VM 若帶有忽略標籤，一律跳過（優先於監控標籤，用於標記不需要備份的 VM）。
-
-        每次同步皆檢查（非一次性事件），問題未解決會持續提醒。
-        僅在 NetBox（Django）環境下執行，standalone 執行時靜默跳過。
-        """
-        watch_tag = self.monitoring_config.get('backup_watch_tag', '0N')
-        ignore_tag = self.monitoring_config.get('backup_ignore_tag', 'NO-Backup')
-        if not watch_tag:
-            return
-        tags_lower = {t.lower() for t in tag_names}
-        if ignore_tag and ignore_tag.lower() in tags_lower:
-            return
-        if watch_tag.lower() not in tags_lower:
-            return
-        try:
-            from pve_sync_plugin.models import PveBackupStatus, VeeamBackupStatus
-        except Exception:
-            return
-        try:
-            vm_filter = {'vm__serial': str(vm_id), 'vm__cluster_id': netbox_cluster_id}
-            backup = PveBackupStatus.objects.filter(**vm_filter).first()
-            veeam_backups = list(VeeamBackupStatus.objects.filter(**vm_filter).select_related('server'))
-        except Exception as e:
-            print(f"  ⚠ 無法查詢備份狀態: {e}")
-            return
-
-        # PBS 與 Veeam 分開判斷：VM 在哪個來源有備份記錄，就檢查那個來源；
-        # 兩邊都沒有記錄才算「從未備份」。
-        problems = []
-        pbs_age = backup.backup_age_days if backup and backup.last_backup else None
-        if pbs_age is not None and backup.is_stale:
-            problems.append(f"PBS：已 {pbs_age} 天未備份")
-        for vb in veeam_backups:
-            label = f"Veeam（{vb.server.name}）"
-            if vb.last_restore_point is None:
-                problems.append(f"{label}：沒有還原點")
-            elif vb.is_stale:
-                problems.append(f"{label}：已 {vb.backup_age_days} 天未備份")
-            if vb.last_result == 'failed':
-                reason = f"，{vb.last_run_reason[:100]}" if vb.last_run_reason else ""
-                problems.append(f"{label}：最後一次備份失敗{reason}")
-        if pbs_age is None and not veeam_backups:
-            problems.append("從未有備份記錄（PBS 與 Veeam 皆無）")
-        if not problems:
-            return
-
-        self.stats['backup_overdue_alerts'] = self.stats.get('backup_overdue_alerts', 0) + 1
-        print(f"🗄️ VM {vm_name} 備份異常: {'; '.join(problems)}")
-        msg = (
-            f"🗄️ <b>VM 備份逾期警告</b>\n\n"
-            f"🖥️ 名稱: <b>{html.escape(vm_name)}</b> (ID: {vm_id})\n"
-            f"🔀 叢集: {self.cluster_name}\n"
-            f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            + "\n".join(f"⏰ {html.escape(p)}" for p in problems) +
-            f"\n（標記 {watch_tag}，需定期備份）\n"
-            f"⚠️ 請確認 PBS / Veeam 備份任務是否正常執行。"
-        )
-        self.send_telegram_notification(msg, chat_id=getattr(self, 'telegram_chat_id_backup', None))
-
     # ---------- 虛擬機處理主邏輯 ----------
     def process_virtual_machine(self, vm_data: Dict, device, cluster: Dict, force: bool = False) -> bool:
         vm_id = str(vm_data['vmid'])
@@ -2108,9 +2038,6 @@ class OptimizedPVEToNetBoxSync:
 """
                 self.stats['power_state_alerts'] += 1
                 self.send_telegram_notification(message)
-
-        if tag_names:
-            self.check_backup_overdue(vm_id, original_vm_name, tag_names, cluster['id'])
 
         # 節點放置檢查：VM 描述 (Notes) 內若標記 "node: <預期節點>" 或
         # "預設放在<預期節點>"，而目前實際所在節點與其不符，則提醒

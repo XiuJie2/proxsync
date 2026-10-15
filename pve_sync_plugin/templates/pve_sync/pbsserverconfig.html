@@ -65,7 +65,7 @@
           <td>
             <a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ object.pk }}">{{ backup_vm_count }}</a>
             {% if backup_stale_count %}
-              <a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ object.pk }}&stale=true" class="badge text-bg-warning text-decoration-none ms-1">{{ backup_stale_count }} 台逾期</a>
+              <a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ object.pk }}&stale=true&monitored=true" class="badge text-bg-warning text-decoration-none ms-1" title="標記 {{ backup_watch_tag }} 的 VM 在此伺服器上的備份已逾期">{{ backup_stale_count }} 台逾期</a>
             {% endif %}
           </td>
         </tr>

@@ -260,7 +260,7 @@
               <td class="text-center">
                 <a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ pbs.pk }}" class="fw-semibold" title="查看此伺服器備份的 VM">{{ pbs.vm_count }}</a>
                 {% if pbs.vm_stale_count %}
-                  <br><a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ pbs.pk }}&stale=true" class="badge text-bg-warning text-decoration-none">
+                  <br><a href="{% url 'plugins:pve_sync_plugin:pbsbackupstatus_list' %}?server_id={{ pbs.pk }}&stale=true&monitored=true" class="badge text-bg-warning text-decoration-none" title="標記 {{ backup_watch_tag }} 的 VM 在此伺服器上的備份已逾期">
                     <i class="mdi mdi-alert-circle"></i> {{ pbs.vm_stale_count }} 台逾期
                   </a>
                 {% elif pbs.vm_count %}
@@ -437,12 +437,12 @@
       <div class="card-body p-0">
         <ul class="list-group list-group-flush">
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-backup-restore text-warning me-1"></i> PBS 備份逾期（&gt;{{ pbs_overdue_days }} 天） <a href="{% url 'plugins:pve_sync_plugin:settings-pbs' %}" class="text-muted" title="設定逾期天數"><i class="mdi mdi-cog-outline"></i></a></span>
-            <a href="{% url 'plugins:pve_sync_plugin:pvebackupstatus_list' %}?overdue=true" class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ backup_alerts }}</a>
+            <span><i class="mdi mdi-backup-restore text-warning me-1"></i> PBS 備份逾期（{% if backup_watch_tag %}標記 {{ backup_watch_tag }}，{% endif %}&gt;{{ pbs_overdue_days }} 天或從未備份） <a href="{% url 'plugins:pve_sync_plugin:settings-pbs' %}" class="text-muted" title="設定逾期天數"><i class="mdi mdi-cog-outline"></i></a></span>
+            <a href="{% url 'plugins:pve_sync_plugin:pvebackupstatus_list' %}?alerting=true" class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-shield-alert-outline text-warning me-1"></i> Veeam 備份異常（逾期 &gt;{{ veeam_overdue_days }} 天或失敗） <a href="{% url 'plugins:pve_sync_plugin:settings-veeam' %}" class="text-muted" title="設定逾期天數"><i class="mdi mdi-cog-outline"></i></a></span>
-            <a href="{% url 'plugins:pve_sync_plugin:veeambackupstatus_list' %}?problem=true" class="badge text-bg-{% if veeam_backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ veeam_backup_alerts }}</a>
+            <span><i class="mdi mdi-shield-alert-outline text-warning me-1"></i> Veeam 備份異常（{% if backup_watch_tag %}標記 {{ backup_watch_tag }}，{% endif %}逾期 &gt;{{ veeam_overdue_days }} 天或失敗） <a href="{% url 'plugins:pve_sync_plugin:settings-veeam' %}" class="text-muted" title="設定逾期天數"><i class="mdi mdi-cog-outline"></i></a></span>
+            <a href="{% url 'plugins:pve_sync_plugin:veeambackupstatus_list' %}?alerting=true" class="badge text-bg-{% if veeam_backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ veeam_backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span><i class="mdi mdi-webhook text-info me-1"></i> 待處理 Webhook</span>

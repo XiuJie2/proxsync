@@ -3,7 +3,7 @@
 from django import forms
 
 from netbox.forms import NetBoxModelForm, NetBoxModelFilterSetForm
-from utilities.forms.fields import DynamicModelChoiceField
+from utilities.forms.fields import DynamicModelChoiceField, DynamicModelMultipleChoiceField
 
 from dcim.models import Device, Site
 from virtualization.models import Cluster, ClusterType, VirtualMachine
@@ -120,9 +120,16 @@ class _BackupSettingsForm(forms.ModelForm):
 
 
 class PbsBackupSettingsForm(_BackupSettingsForm):
+    backup_clusters_pbs = DynamicModelMultipleChoiceField(
+        queryset=Cluster.objects.all(),
+        required=False,
+        label="監控叢集",
+        help_text="只監控這些叢集的 VM（不選 = 全部叢集）",
+    )
+
     class Meta:
         model = PvePluginSettings
-        fields = ("backup_overdue_days_pbs",)
+        fields = ("backup_clusters_pbs", "backup_overdue_days_pbs")
         labels = {
             "backup_overdue_days_pbs": "備份逾期天數",
         }
@@ -132,9 +139,16 @@ class PbsBackupSettingsForm(_BackupSettingsForm):
 
 
 class VeeamBackupSettingsForm(_BackupSettingsForm):
+    backup_clusters_veeam = DynamicModelMultipleChoiceField(
+        queryset=Cluster.objects.all(),
+        required=False,
+        label="監控叢集",
+        help_text="只監控這些叢集的 VM（不選 = 全部叢集）",
+    )
+
     class Meta:
         model = PvePluginSettings
-        fields = ("backup_overdue_days_veeam", "veeam_job_not_run_hours", "veeam_repo_free_percent")
+        fields = ("backup_clusters_veeam", "backup_overdue_days_veeam", "veeam_job_not_run_hours", "veeam_repo_free_percent")
         labels = {
             "backup_overdue_days_veeam": "備份逾期天數",
             "veeam_job_not_run_hours": "任務未執行告警（小時）",
@@ -385,6 +399,7 @@ class PbsBackupStatusFilterForm(NetBoxModelFilterSetForm):
         label="PBS Server",
     )
     stale = forms.NullBooleanField(required=False, label="Stale (overdue)")
+    monitored = forms.NullBooleanField(required=False, label="Monitored (watch tag)")
 
 
 class VeeamBackupStatusFilterForm(NetBoxModelFilterSetForm):

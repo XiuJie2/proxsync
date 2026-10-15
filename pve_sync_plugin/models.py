@@ -348,6 +348,14 @@ class PvePluginSettings(SecretMaskMixin, NetBoxModel):
         default=7,
         help_text="Veeam 超過幾天沒有新還原點視為逾期（0 = 不檢查）",
     )
+    backup_clusters_pbs = models.ManyToManyField(
+        "virtualization.Cluster", blank=True, related_name="+",
+        help_text="只監控這些叢集的 VM 的 PBS 備份逾期（不選 = 全部叢集）",
+    )
+    backup_clusters_veeam = models.ManyToManyField(
+        "virtualization.Cluster", blank=True, related_name="+",
+        help_text="只監控這些叢集的 VM 的 Veeam 備份逾期（不選 = 全部叢集）",
+    )
     veeam_job_not_run_hours = models.PositiveIntegerField(
         default=26,
         help_text="已啟用的 Veeam 備份任務超過幾小時沒有執行就告警（0 = 不檢查）",

@@ -79,6 +79,7 @@ from .tables import (
     VeeamServerConfigTable,
     VmProvisioningLogTable,
 )
+from .backup_alerts import monitored_vms, pbs_alert_count, veeam_alert_count
 from .tasks import enqueue_webhook_event
 from .utils import get_plugin_config, get_threshold
 from .view_helpers import (
@@ -105,6 +106,8 @@ class DashboardView(PermissionRequiredMixin, View):
             pbs_stale |= Q(
                 backup_statuses__last_backup__lt=timezone.now() - timezone.timedelta(days=pbs_overdue_days)
             )
+        # Overdue counts only cover VMs monitored for PBS backups.
+        pbs_stale &= Q(backup_statuses__vm__in=monitored_vms("pbs").values("pk"))
         pbs_servers = PbsServerConfig.objects.filter(enabled=True).select_related(
             "netbox_site", "netbox_device"
         ).annotate(
@@ -182,14 +185,9 @@ class DashboardView(PermissionRequiredMixin, View):
 
         # Alerts
         pending_webhooks = PveWebhookEvent.objects.filter(processed=False).count()
-        backup_alerts = PveBackupStatus.objects.filter(
-            last_backup__lt=timezone.now() - timezone.timedelta(days=pbs_overdue_days)
-        ).count() if pbs_overdue_days else 0
-        veeam_backup_alerts = VeeamBackupStatus.objects.filter(
-            Q(last_restore_point__isnull=True)
-            | Q(last_restore_point__lt=stale_cutoff)
-            | Q(last_result="failed")
-        ).count()
+        # Only VMs that actually get alerted (monitoring tag, not ignored).
+        backup_alerts = pbs_alert_count()
+        veeam_backup_alerts = veeam_alert_count()
         offline_node_list = (
             node_qs.exclude(status="active")
             .select_related("cluster")
@@ -207,6 +205,7 @@ class DashboardView(PermissionRequiredMixin, View):
             "veeam_servers": veeam_servers,
             "veeam_backup_alerts": veeam_backup_alerts,
             "pbs_overdue_days": pbs_overdue_days,
+            "backup_watch_tag": get_plugin_config("backup_watch_tag", ""),
             "veeam_overdue_days": veeam_overdue_days,
             "total_nodes": total_nodes,
             "online_nodes": online_nodes,
@@ -330,7 +329,10 @@ class PbsServerConfigView(generic.ObjectView):
         statuses = PbsBackupStatus.objects.filter(server=instance)
         return {
             "backup_vm_count": statuses.count(),
-            "backup_stale_count": PbsBackupStatusFilterSet({"stale": True}, statuses).qs.count(),
+            "backup_stale_count": PbsBackupStatusFilterSet(
+                {"stale": True, "monitored": True}, statuses
+            ).qs.count(),
+            "backup_watch_tag": get_plugin_config("backup_watch_tag", ""),
             "backup_errors": (last_job.details or {}).get("backup_errors", []) if last_job else [],
             "last_backup_job": last_job,
         }
