@@ -267,7 +267,9 @@ class VeeamBackupStatusFilterSet(NetBoxModelFilterSet):
         return queryset.filter(stale) if value else queryset.exclude(stale)
 
     def filter_problem(self, queryset, name, value):
-        problem = self._stale_q() | Q(last_result=VeeamResultChoices.FAILED)
+        from .backup_alerts import veeam_alert_q
+
+        problem = veeam_alert_q()
         return queryset.filter(problem) if value else queryset.exclude(problem)
 
     def filter_alerting(self, queryset, name, value):

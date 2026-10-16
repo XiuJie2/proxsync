@@ -163,48 +163,53 @@ def test_build_vm_records_prefers_most_recent_job_run(env):
     assert records["o1"]["result"] == "success"
 
 
-def test_summarize_jobs_counts_and_carries_notified_only_for_same_session(env):
-    summary = env.veeam.summarize_jobs(SAMPLE)
-    job = summary[0]
+def test_summarize_jobs_counts(env):
+    job = env.veeam.summarize_jobs(SAMPLE)[0]
     assert job["result"] == "success"
     assert job["task_counts"]["success"] == 1 and job["task_counts"]["warning"] == 1
     assert job["failed_tasks"] == [{"name": "vm-b", "status": "warning", "reason": "Low space"}]
-
-    job["notified"] = True
-    assert env.veeam.summarize_jobs(SAMPLE, previous=summary)[0]["notified"] is True
-    new_session = copy.deepcopy(SAMPLE)
-    new_session["jobs"][0]["session_id"] = "s2"
-    assert env.veeam.summarize_jobs(new_session, previous=summary)[0]["notified"] is False
+    assert job["member_count"] is None
 
 
-def _failed_sample():
+def _with_members(result="Success", tasks=None, log=(), retry=False):
     data = copy.deepcopy(SAMPLE)
-    data["jobs"][0].update(result="Failed", session_id="s-failed", start=datetime.now(timezone.utc).isoformat())
-    data["jobs"][0]["tasks"][0].update(status="Failed", reason="Cannot connect <pve> & retry")
+    job = data["jobs"][0]
+    job.update(result=result, retry=retry, log=list(log))
+    if tasks is not None:
+        job["tasks"] = tasks
+    job["members"] = [{"object_id": "o1", "name": "vm-a"}, {"object_id": "o9", "name": "c1:383"}]
     return data
 
 
-def test_failed_job_alerts_once_and_escapes_html(env):
-    summary = env.veeam.summarize_jobs(_failed_sample())
-    assert env.veeam.notify_job_alerts(FakeServer(), summary) == 1
-    assert len(env.sent) == 1
-    assert "vbr&lt;01&gt;" in env.sent[0]
-    assert "Cannot connect &lt;pve&gt; &amp; retry" in env.sent[0]
-
-    again = env.veeam.summarize_jobs(_failed_sample(), previous=summary)
-    assert env.veeam.notify_job_alerts(FakeServer(), again) == 0
-    assert len(env.sent) == 1
+def test_members_mark_in_job_and_leftover_restore_points(env):
+    records = env.veeam.build_vm_records(_with_members())
+    assert records["o1"]["in_job"] is True
+    # Restore points of a job that no longer has the VM.
+    assert records["o3"]["in_job"] is False
+    # A member without a task in a successful session is left alone.
+    assert records["o9"]["result"] == "unknown" and records["o9"]["job_name"] == "Daily PVE"
 
 
-def test_failed_send_is_retried_but_unconfigured_telegram_is_not(env):
-    env.state["telegram"] = False  # Telegram rejected the message
-    summary = env.veeam.summarize_jobs(_failed_sample())
-    env.veeam.notify_job_alerts(FakeServer(), summary)
-    assert summary[0]["notified"] is False
+def test_member_skipped_by_failed_session_is_failed_with_its_log_line(env):
+    log = [{"status": "EWarning", "title": "There are no resources to process"},
+           {"status": "EFailed", "title": "Failed to find the VM c1:383"}]
+    records = env.veeam.build_vm_records(_with_members(result="Failed", tasks=[], log=log))
+    assert records["o9"]["result"] == "failed"
+    assert records["o9"]["reason"] == "Failed to find the VM c1:383"
+    # vm-a is not named: the session's first failure line is used.
+    assert records["o1"]["result"] == "failed" and records["o1"]["job_name"] == "Daily PVE"
 
-    env.state["telegram"] = None  # Telegram not configured
-    env.veeam.notify_job_alerts(FakeServer(), summary)
-    assert summary[0]["notified"] is True
+
+def test_retry_or_running_session_does_not_fail_missing_members(env):
+    for data in (_with_members(result="Failed", tasks=[], retry=True), _with_members(result="None", tasks=[])):
+        data["jobs"][0]["state"] = "Working" if not data["jobs"][0]["retry"] else "Stopped"
+        records = env.veeam.build_vm_records(data)
+        assert records["o9"]["result"] == "unknown"
+
+
+def test_unreadable_members_leave_in_job_unknown(env):
+    records = env.veeam.build_vm_records(SAMPLE)
+    assert {rec["in_job"] for rec in records.values()} == {None}
 
 
 def test_job_not_run_detection(env):
@@ -219,17 +224,13 @@ def test_job_not_run_detection(env):
     assert env.veeam._job_not_run(job, now) is False
 
 
-def test_job_not_run_alert_sent_once(env):
+def test_mark_jobs_not_run_sends_nothing(env):
     data = copy.deepcopy(SAMPLE)
     data["jobs"][0]["start"] = "2020-01-01T00:00:00+00:00"
     summary = env.veeam.summarize_jobs(data)
-    env.veeam.notify_job_alerts(FakeServer(), summary)
+    env.veeam.mark_jobs_not_run(summary)
     assert summary[0]["not_run"] is True
-    assert len([t for t in env.sent if "未依排程執行" in t]) == 1
-
-    again = env.veeam.summarize_jobs(data, previous=summary)
-    env.veeam.notify_job_alerts(FakeServer(), again)
-    assert len([t for t in env.sent if "未依排程執行" in t]) == 1
+    assert env.sent == []
 
 
 def test_repository_alert_once_and_rearms_after_recovery(env):

@@ -10,6 +10,11 @@
         <tr><th scope="row">Virtual Machine</th><td><a href="{{ object.vm.get_absolute_url }}">{{ object.vm.name }}</a></td></tr>
         <tr><th scope="row">Veeam Server</th><td><a href="{{ object.server.get_absolute_url }}">{{ object.server.name }}</a></td></tr>
         <tr><th scope="row">Job</th><td>{{ object.job_name|default:"—" }}</td></tr>
+        <tr><th scope="row">In a Job</th><td>
+          {% if object.in_job %}<span class="badge text-bg-success">Yes</span>
+          {% elif object.in_job is False %}<span class="badge text-bg-secondary">No</span> <span class="text-muted small">（舊的還原點，不檢查逾期）</span>
+          {% else %}—{% endif %}
+        </td></tr>
         <tr><th scope="row">Last Result</th><td><span class="badge text-bg-{{ object.get_last_result_color }}">{{ object.get_last_result_display }}</span></td></tr>
         <tr><th scope="row">Last Run</th><td>
           {% if object.last_run_start %}{{ object.last_run_start|date:"Y-m-d H:i" }}{% if object.last_run_end %} → {{ object.last_run_end|date:"H:i" }}{% endif %}{% else %}—{% endif %}

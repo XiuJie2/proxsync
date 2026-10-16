@@ -213,7 +213,7 @@
                 <ul class="mb-0 small">
                   {% for item in object.details.veeam_failed_jobs %}<li>{{ item }}</li>{% endfor %}
                 </ul>
-                <div class="small text-muted">Telegram 告警發送 {{ object.details.veeam_alerts_sent|default:0 }} 則（同一次執行只通知一次）</div>
+                <div class="small text-muted">任務層級不發通知；VM 的備份異常已發送 {{ object.details.backup_overdue_alerted|default:0 }} 則</div>
               {% else %}0{% endif %}
             </td>
           </tr>

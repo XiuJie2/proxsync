@@ -772,6 +772,11 @@ class VeeamBackupStatus(NetBoxModel):
     restore_point_type = models.CharField(max_length=50, blank=True)
     restore_point_consistent = models.BooleanField(null=True, blank=True)
     veeam_object_id = models.CharField(max_length=100, blank=True)
+    in_job = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether a backup job on this server includes the VM (empty = unknown)",
+    )
 
     class Meta:
         ordering = ["vm__name"]
@@ -816,6 +821,9 @@ class VeeamBackupStatus(NetBoxModel):
 
     @property
     def has_problem(self):
+        # A VM no longer in any job here is not expected to be backed up here.
+        if self.in_job is False:
+            return False
         return self.is_stale or self.last_result == VeeamResultChoices.FAILED
 
 

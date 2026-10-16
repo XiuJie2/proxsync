@@ -151,7 +151,7 @@ class VeeamBackupSettingsForm(_BackupSettingsForm):
         fields = ("backup_clusters_veeam", "backup_overdue_days_veeam", "veeam_job_not_run_hours", "veeam_repo_free_percent")
         labels = {
             "backup_overdue_days_veeam": "備份逾期天數",
-            "veeam_job_not_run_hours": "任務未執行告警（小時）",
+            "veeam_job_not_run_hours": "任務未執行標示（小時）",
             "veeam_repo_free_percent": "Repository 剩餘空間告警（%）",
         }
         help_texts = {
@@ -160,8 +160,8 @@ class VeeamBackupSettingsForm(_BackupSettingsForm):
                 "名稱含 Everyday 的任務固定 1 天、含 Everymonth 的固定 31 天。"
             ),
             "veeam_job_not_run_hours": (
-                "已啟用的 Veeam 備份任務超過幾小時沒有執行就告警（0 = 不檢查）。"
-                "名稱含 Everymonth 的任務固定 32 天。"
+                "已啟用的 Veeam 備份任務超過幾小時沒有執行，就在伺服器頁標示「未依排程執行」（0 = 不檢查）。"
+                "名稱含 Everymonth 的任務固定 32 天。只標示不發通知，任務裡的 VM 逾期時會各自通知。"
             ),
             "veeam_repo_free_percent": "Veeam Repository 剩餘空間低於幾 % 就告警（0 = 不檢查）",
         }

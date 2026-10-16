@@ -124,6 +124,7 @@
               <th>Last Result</th>
               <th>Started</th>
               <th>Finished</th>
+              <th class="text-center">VMs in Job</th>
               <th class="text-center">VMs (OK / Warn / Fail)</th>
             </tr>
           </thead>
@@ -143,16 +144,23 @@
               </td>
               <td class="text-nowrap">{% if job.start_dt %}{{ job.start_dt|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
               <td class="text-nowrap">{% if job.end_dt %}{{ job.end_dt|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
+              <td class="text-center">{{ job.member_count|default_if_none:"—" }}</td>
               <td class="text-center">
                 <span class="text-success">{{ job.task_counts.success }}</span> /
                 <span class="text-warning">{{ job.task_counts.warning }}</span> /
                 <span class="text-danger">{{ job.task_counts.failed }}</span>
               </td>
             </tr>
-            {% if job.reason or job.failed_tasks %}
+            {% if job.reason or job.failed_tasks or job.log_lines %}
             <tr>
-              <td colspan="7" class="small">
+              <td colspan="8" class="small">
                 {% if job.reason %}<div class="text-muted">{{ job.reason }}</div>{% endif %}
+                {% for line in job.log_lines %}
+                  <div>
+                    {% if line.status == 'failed' %}<i class="mdi mdi-close-circle text-danger"></i>{% else %}<i class="mdi mdi-alert text-warning"></i>{% endif %}
+                    <span class="text-muted">{{ line.title }}</span>
+                  </div>
+                {% endfor %}
                 {% for task in job.failed_tasks %}
                   <div>
                     {% if task.status == 'failed' %}<i class="mdi mdi-close-circle text-danger"></i>{% else %}<i class="mdi mdi-alert text-warning"></i>{% endif %}
@@ -212,7 +220,7 @@
 <div class="row mt-3">
   <div class="col">
     <div class="card border-warning">
-      <h5 class="card-header">需注意的 VM（備份逾期或最後一次失敗；逾期：Everyday 任務 &gt;1 天、Everymonth 任務 &gt;31 天、其他 &gt;{{ veeam_overdue_days }} 天）</h5>
+      <h5 class="card-header">需注意的 VM（備份逾期或最後一次失敗，已不在任何任務中的不檢查；逾期：Everyday 任務 &gt;1 天、Everymonth 任務 &gt;31 天、其他 &gt;{{ veeam_overdue_days }} 天）</h5>
       <table class="table table-hover mb-0">
         <thead><tr><th>VM</th><th>Job</th><th>Last Result</th><th>Last Restore Point</th><th>Reason</th></tr></thead>
         <tbody>

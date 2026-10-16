@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # Base64 chars per upload command — keeps each WinRM command well under the
 # Windows command-line limit once PowerShell -EncodedCommand inflates it.
 _UPLOAD_CHUNK = 2000
+_EPOCH = datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
 _OUTPUT_START = "<<<NBVEEAM"
 _OUTPUT_END = "NBVEEAM>>>"
 
@@ -83,6 +84,22 @@ $jobs = @(foreach ($j in @(Get-VBRJob)) {
             })
         } catch { }
     }
+    # VMs the job is set to back up (null when they cannot be read), and the
+    # failure / warning lines of its last session, which name VMs that got
+    # no task (e.g. "Failed to find the VM ...").
+    $members = $null
+    try {
+        $members = @($j.GetObjectsInJob() | Where-Object { "$($_.Type)" -eq "Include" } | ForEach-Object {
+            [ordered]@{ object_id = "$($_.ObjectId)"; name = $_.Name }
+        })
+    } catch { }
+    $log = @()
+    if ($s) {
+        try {
+            $log = @($s.Logger.GetLog().UpdatedRecords | Where-Object { "$($_.Status)" -in @("EFailed", "EWarning") } |
+                Select-Object -First 50 | ForEach-Object { [ordered]@{ status = "$($_.Status)"; title = "$($_.Title)" } })
+        } catch { }
+    }
     [ordered]@{
         id         = "$($j.Id)"
         name       = $j.Name
@@ -94,7 +111,10 @@ $jobs = @(foreach ($j in @(Get-VBRJob)) {
         start      = if ($s) { T $s.CreationTime } else { $null }
         end        = if ($s) { T $s.EndTime } else { $null }
         reason     = if ($s) { "$($s.Info.Reason)" } else { $null }
+        retry      = if ($s) { [bool]$s.IsRetryMode } else { $false }
         tasks      = $tasks
+        members    = $members
+        log        = $log
     }
 })
 
@@ -230,6 +250,9 @@ class VeeamWinRMClient:
             data[key] = _as_list(data.get(key))
         for job in data["jobs"]:
             job["tasks"] = _as_list(job.get("tasks"))
+            job["log"] = _as_list(job.get("log"))
+            if job.get("members") is not None:
+                job["members"] = _as_list(job["members"])
         return data
 
 
@@ -276,7 +299,10 @@ def build_vm_records(data):
     """Merge restore points and last-session tasks into one record per Veeam object.
 
     Returns {object_id: {name, vmid, node, job_name, result, run_start, run_end,
-    reason, restore_point, restore_point_type, consistent}}.
+    reason, restore_point, restore_point_type, consistent, in_job}}. ``in_job``
+    is whether a job is set to back the object up (None when the job members
+    could not be read). A member the last session did not process is failed,
+    with the session's failure line naming it as the reason.
     """
     records = {}
     for rp in data.get("restore_points", []):
@@ -295,6 +321,7 @@ def build_vm_records(data):
             "restore_point": parse_time(rp.get("time")),
             "restore_point_type": rp.get("type") or "",
             "consistent": rp.get("consistent"),
+            "in_job": None,
         }
 
     for job in data.get("jobs", []):
@@ -315,6 +342,7 @@ def build_vm_records(data):
                 "restore_point": None,
                 "restore_point_type": "",
                 "consistent": None,
+                "in_job": None,
             })
             # A VM can sit in several jobs — keep the most recent run.
             if rec["run_start"] and start and start <= rec["run_start"]:
@@ -326,7 +354,63 @@ def build_vm_records(data):
                 "run_end": parse_time(task.get("end")),
                 "reason": (task.get("reason") or "").strip(),
             })
+
+    jobs = data.get("jobs", [])
+    if jobs and all(job.get("members") is not None for job in jobs):
+        for rec in records.values():
+            rec["in_job"] = False
+    for job in jobs:
+        _apply_job_members(records, job)
     return records
+
+
+def _apply_job_members(records, job):
+    """Mark the job's members in ``records`` and fail those its last session
+    skipped. A retry session only re-runs failed VMs and a running one is not
+    finished, so neither says anything about the VMs missing from it."""
+    members = job.get("members") or []
+    if not members:
+        return
+    result = normalize_result(job.get("result"), job.get("state")) if job.get("session_id") else "unknown"
+    judged = result not in ("running", "unknown") and not job.get("retry")
+    processed = {t.get("object_id") for t in job.get("tasks", [])}
+    failures = [line.get("title") or "" for line in job.get("log", []) if line.get("status") == "EFailed"]
+    start = parse_time(job.get("start"))
+    for member in members:
+        oid = member.get("object_id")
+        if not oid:
+            continue
+        rec = records.setdefault(oid, {
+            "name": member.get("name") or "",
+            "vmid": None,
+            "node": "",
+            "job_name": "",
+            "result": "unknown",
+            "run_start": None,
+            "run_end": None,
+            "reason": "",
+            "restore_point": None,
+            "restore_point_type": "",
+            "consistent": None,
+            "in_job": None,
+        })
+        rec["in_job"] = True
+        if oid in processed:
+            continue
+        # Its restore point may come from a job that no longer exists.
+        rec["job_name"] = job.get("name") or rec["job_name"]
+        if not judged:
+            continue
+        name = member.get("name") or ""
+        named = [line for line in failures if name and name in line]
+        if not named and result != "failed":
+            continue
+        rec.update({
+            "result": "failed",
+            "run_start": start,
+            "run_end": parse_time(job.get("end")),
+            "reason": (named or failures or ["上次執行沒有處理這台 VM"])[0].strip(),
+        })
 
 
 def match_vm(name, vmid, node):
@@ -378,12 +462,17 @@ def apply_veeam_backup_status(server, data):
 
     records = build_vm_records(data)
     keep_vm_ids = set()
-    written = {}  # vm pk -> restore point written this run
+    per_vm = {}  # vm -> [(object id, record)]
     updated = 0
     unmatched = []
     ambiguous = []
 
     for oid, rec in records.items():
+        # A member without restore points is named "<cluster>:<VMID>" when
+        # Veeam cannot find the VM; its VMID may belong to another VM by now.
+        if rec["restore_point"] is None and rec["vmid"] is None and re.fullmatch(r"[0-9a-f-]{36}:\d+", rec["name"]):
+            unmatched.append(rec["name"])
+            continue
         vm, candidates = match_vm(rec["name"], rec["vmid"], rec["node"])
         if vm is None:
             label = rec["name"] + (f" (VMID {rec['vmid']})" if rec["vmid"] is not None else "")
@@ -395,24 +484,30 @@ def apply_veeam_backup_status(server, data):
             continue
 
         keep_vm_ids.add(vm.pk)
-        # One VM can show up as several Veeam objects (e.g. re-added to a job);
-        # the newest restore point wins.
-        if vm.pk in written and (
-            rec["restore_point"] is None
-            or (written[vm.pk] is not None and rec["restore_point"] <= written[vm.pk])
-        ):
-            continue
-        written[vm.pk] = rec["restore_point"]
+        per_vm.setdefault(vm, []).append((oid, rec))
+
+    for vm, items in per_vm.items():
+        # One VM can show up as several Veeam objects (e.g. re-added to a job):
+        # the newest restore point and the latest run each win, and the VM is
+        # in a job when any of its objects is.
+        newest = max(items, key=lambda item: item[1]["restore_point"] or _EPOCH)[1]
+        ran = [item for item in items if item[1]["run_start"]]
+        latest = max(ran, key=lambda item: item[1]["run_start"]) if ran else max(
+            items, key=lambda item: (bool(item[1]["in_job"]), item[1]["restore_point"] or _EPOCH)
+        )
+        oid, run = latest
+        flags = [rec["in_job"] for _, rec in items]
         status, _ = VeeamBackupStatus.objects.get_or_create(vm=vm, server=server)
         status.veeam_object_id = oid
-        status.job_name = rec["job_name"][:200]
-        status.last_result = rec["result"]
-        status.last_run_start = rec["run_start"]
-        status.last_run_end = rec["run_end"]
-        status.last_run_reason = rec["reason"]
-        status.last_restore_point = rec["restore_point"]
-        status.restore_point_type = rec["restore_point_type"][:50]
-        status.restore_point_consistent = rec["consistent"]
+        status.job_name = run["job_name"][:200]
+        status.last_result = run["result"]
+        status.last_run_start = run["run_start"]
+        status.last_run_end = run["run_end"]
+        status.last_run_reason = run["reason"]
+        status.last_restore_point = newest["restore_point"]
+        status.restore_point_type = newest["restore_point_type"][:50]
+        status.restore_point_consistent = newest["consistent"]
+        status.in_job = True if True in flags else (None if None in flags else False)
         status.save()
         updated += 1
 
@@ -426,19 +521,13 @@ def apply_veeam_backup_status(server, data):
     }
 
 
-def summarize_jobs(data, previous=None):
-    """Build the job summary stored on VeeamServerConfig.job_summary.
-
-    ``notified`` carries over for a session that was already reported so a
-    failed run is announced once, not on every sync.
-    """
-    prev_by_id = {j.get("id"): j for j in previous or []}
+def summarize_jobs(data):
+    """Build the job summary stored on VeeamServerConfig.job_summary."""
     summary = []
     for job in data.get("jobs", []):
         counts = {"success": 0, "warning": 0, "failed": 0, "running": 0, "unknown": 0}
         for task in job.get("tasks", []):
             counts[normalize_result(task.get("status"))] += 1
-        prev = prev_by_id.get(job.get("id")) or {}
         summary.append({
             "id": job.get("id"),
             "name": job.get("name"),
@@ -455,8 +544,11 @@ def summarize_jobs(data, previous=None):
                 for t in job.get("tasks", [])
                 if normalize_result(t.get("status")) in ("failed", "warning")
             ],
-            "notified": bool(prev.get("notified")) and prev.get("session_id") == job.get("session_id"),
-            "not_run_notified": bool(prev.get("not_run_notified")) and prev.get("session_id") == job.get("session_id"),
+            "member_count": len(job["members"]) if job.get("members") is not None else None,
+            "log_lines": [
+                {"status": "failed" if line.get("status") == "EFailed" else "warning", "title": line.get("title") or ""}
+                for line in job.get("log", [])[:10]
+            ],
         })
     return summary
 
@@ -475,65 +567,11 @@ def _job_not_run(job, now=None):
     return ((now or datetime.now(dt_timezone.utc)) - start).total_seconds() > hours * 3600
 
 
-def _hours_text(hours):
-    return f"{hours // 24} 天" if hours >= 48 and hours % 24 == 0 else f"{hours} 小時"
-
-
-def notify_job_alerts(server, summary):
-    """Send Telegram alerts for failed/warning job sessions and for enabled jobs
-    that stopped running. Each condition is reported once per session.
-
-    Marks reported entries in ``summary`` (mutated in place); also sets each
-    job's ``not_run`` flag for display. Returns the number of alerts sent.
-    """
-    from .utils import send_backup_alert, veeam_not_run_hours
-
-    sent = 0
-    server_name = html.escape(server.name)
+def mark_jobs_not_run(summary):
+    """Set each job's ``not_run`` flag (shown on the server page). Alerts are
+    sent per VM by backup_alerts, not per job."""
     for job in summary:
-        job_name = html.escape(job["name"] or "")
         job["not_run"] = _job_not_run(job)
-
-        if job["not_run"] and not job.get("not_run_notified"):
-            last = (job.get("start") or "")[:16].replace("T", " ") or "從未執行"
-            text = "\n".join([
-                "⏰ <b>Veeam 備份任務未依排程執行</b>",
-                "",
-                f"🗄️ 伺服器: {server_name}",
-                f"📋 任務: <b>{job_name}</b>",
-                f"📅 最後一次執行: {last}",
-                f"⚠️ 已超過 {_hours_text(veeam_not_run_hours(job['name']))}沒有執行，請確認排程與 Veeam 服務。",
-            ])
-            result = send_backup_alert(text)
-            if result is not False:
-                job["not_run_notified"] = True
-                sent += bool(result)
-
-        if job["result"] not in ("failed", "warning") or job["notified"]:
-            continue
-        icon = "❌" if job["result"] == "failed" else "⚠️"
-        lines = [
-            f"{icon} <b>Veeam 備份任務{'失敗' if job['result'] == 'failed' else '警告'}</b>",
-            "",
-            f"🗄️ 伺服器: {server_name}",
-            f"📋 任務: <b>{job_name}</b>",
-            f"📅 執行時間: {(job.get('start') or '?')[:19].replace('T', ' ')}",
-        ]
-        if job.get("reason"):
-            lines.append(f"💬 {html.escape(job['reason'][:300])}")
-        if job["failed_tasks"]:
-            lines.append("")
-            for task in job["failed_tasks"][:10]:
-                mark = "❌" if task["status"] == "failed" else "⚠️"
-                reason = f" — {html.escape(task['reason'][:150])}" if task["reason"] else ""
-                lines.append(f"{mark} {html.escape(task['name'] or '')}{reason}")
-            if len(job["failed_tasks"]) > 10:
-                lines.append(f"… 還有 {len(job['failed_tasks']) - 10} 台")
-        result = send_backup_alert("\n".join(lines))
-        if result is not False:
-            job["notified"] = True
-            sent += bool(result)
-    return sent
 
 
 def summarize_server_info(data, previous=None):

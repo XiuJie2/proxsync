@@ -26,7 +26,8 @@
           <a href="{{ s.get_absolute_url }}" class="text-muted">無還原點</a>
         {% endif %}
         <span class="badge text-bg-{{ s.get_last_result_color }}">{{ s.get_last_result_display }}</span>
-        {% if s.is_stale and s.last_restore_point %}<span class="badge text-bg-danger">逾期 {{ s.backup_age_days }} 天</span>{% endif %}
+        {% if s.in_job is False %}<span class="badge text-bg-secondary" title="舊的還原點，不檢查逾期">不在備份任務中</span>
+        {% elif s.is_stale and s.last_restore_point %}<span class="badge text-bg-danger">逾期 {{ s.backup_age_days }} 天</span>{% endif %}
         {% if s.job_name %}<div class="small text-muted">{{ s.job_name }}</div>{% endif %}
         {% if s.last_run_reason %}<div class="small text-danger">{{ s.last_run_reason|truncatechars:200 }}</div>{% endif %}
       </td>

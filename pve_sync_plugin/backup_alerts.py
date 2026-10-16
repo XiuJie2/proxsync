@@ -95,8 +95,11 @@ def veeam_stale_q(prefix=""):
 
 
 def veeam_alert_q(prefix=""):
-    """Q on VeeamBackupStatus for rows that are alerted."""
-    return veeam_stale_q(prefix) | Q(**{f"{prefix}last_result": "failed"})
+    """Q on VeeamBackupStatus for rows that are alerted: overdue or failed,
+    for VMs still in a backup job (left-over restore points of a VM no longer
+    in any job are not checked). Matches VeeamBackupStatus.has_problem."""
+    problem = veeam_stale_q(prefix) | Q(**{f"{prefix}last_result": "failed"})
+    return problem & ~Q(**{f"{prefix}in_job": False})
 
 
 def pbs_alert_vms():
@@ -129,15 +132,19 @@ def _cluster_labels():
 
 
 def _send_per_vm(kind, product, items):
-    """Send one message per VM in ``items`` ([(vm, [problem, ...])]) that was not
-    reminded within ALERT_INTERVAL. Returns the number of VMs reminded."""
+    """Send one message per VM in ``items`` ([(vm, [problem, ...], signature)]).
+    A VM is reminded again after ALERT_INTERVAL, or at once when its problem
+    changes (a different ``signature``, e.g. a new failed run). Returns the
+    number of VMs reminded."""
     labels = _cluster_labels()
     # Only PBS monitoring is limited to VMs with the watch tag.
     watch_tag = get_plugin_config("backup_watch_tag", "") if product == "PBS" else ""
     sent = 0
-    for vm, problems in items:
+    for vm, problems, signature in items:
         key = f"pve_sync:backup_alert:{kind}:{vm.pk}"
-        if cache.get(key):
+        reminded = cache.get(key)
+        # 1 is what was stored before signatures: an overdue-only reminder.
+        if reminded == signature or (reminded == 1 and signature in ("pbs", "stale")):
             continue
         if sent:
             time.sleep(_SEND_GAP_SECONDS)
@@ -153,7 +160,7 @@ def _send_per_vm(kind, product, items):
         )
         if send_backup_alert(text) is not True:
             continue
-        cache.set(key, 1, int(ALERT_INTERVAL.total_seconds()))
+        cache.set(key, signature, int(ALERT_INTERVAL.total_seconds()))
         sent += 1
     return sent
 
@@ -168,23 +175,27 @@ def send_pbs_overdue_alerts():
             problem = f"PBS：已 {status.backup_age_days} 天未備份"
         else:
             problem = "PBS：從未有備份記錄"
-        items.append((vm, [problem]))
+        items.append((vm, [problem], "pbs"))
     return _send_per_vm("pbs", "PBS", items)
 
 
 def send_veeam_overdue_alerts(server):
-    """Same as send_pbs_overdue_alerts, for the VMs backed up by ``server``."""
+    """Same as send_pbs_overdue_alerts, for the VMs in a backup job on
+    ``server`` whose backup is overdue or whose last run failed."""
     items = []
     label = f"Veeam（{server.name}）"
     for status in veeam_alert_statuses(server).order_by("vm__name"):
-        problems = []
+        problems, kinds = [], []
         if status.last_restore_point is None:
             problems.append(f"{label}：沒有還原點")
+            kinds.append("stale")
         elif status.is_stale:
             problems.append(f"{label}：已 {status.backup_age_days} 天未備份")
+            kinds.append("stale")
         if status.last_result == "failed":
-            reason = f"，{status.last_run_reason[:100]}" if status.last_run_reason else ""
+            reason = f"，{status.last_run_reason[:150]}" if status.last_run_reason else ""
             problems.append(f"{label}：最後一次備份失敗{reason}")
+            kinds.append(f"failed@{status.last_run_start.isoformat() if status.last_run_start else ''}")
         if problems:
-            items.append((status.vm, problems))
+            items.append((status.vm, problems, "+".join(kinds)))
     return _send_per_vm(f"veeam{server.pk}", "Veeam", items)

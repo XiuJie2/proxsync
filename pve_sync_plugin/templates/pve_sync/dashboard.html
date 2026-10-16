@@ -441,7 +441,7 @@
             <a href="{% url 'plugins:pve_sync_plugin:pvebackupstatus_list' %}?alerting=true" class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-shield-alert-outline text-warning me-1"></i> Veeam 備份異常（逾期：Everyday &gt;1 天、Everymonth &gt;31 天、其他 &gt;{{ veeam_overdue_days }} 天，或備份失敗） <a href="{% url 'plugins:pve_sync_plugin:settings-veeam' %}" class="text-muted" title="設定逾期天數"><i class="mdi mdi-cog-outline"></i></a></span>
+            <span><i class="mdi mdi-shield-alert-outline text-warning me-1"></i> Veeam 備份異常（逾期：Everyday &gt;1 天、Everymonth &gt;31 天、其他 &gt;{{ veeam_overdue_days }} 天；或備份失敗。已不在任何任務中的 VM 不檢查） <a href="{% url 'plugins:pve_sync_plugin:settings-veeam' %}" class="text-muted" title="設定逾期天數"><i class="mdi mdi-cog-outline"></i></a></span>
             <a href="{% url 'plugins:pve_sync_plugin:veeambackupstatus_list' %}?alerting=true" class="badge text-bg-{% if veeam_backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ veeam_backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">

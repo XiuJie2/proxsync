@@ -394,7 +394,7 @@ def run_veeam_sync_job(job_id, veeam_server_pk):
     from .veeam import (
         VeeamWinRMClient,
         apply_veeam_backup_status,
-        notify_job_alerts,
+        mark_jobs_not_run,
         notify_repository_alerts,
         summarize_jobs,
         summarize_server_info,
@@ -412,10 +412,10 @@ def run_veeam_sync_job(job_id, veeam_server_pk):
     try:
         data = VeeamWinRMClient(server).collect()
         counters = apply_veeam_backup_status(server, data)
-        summary = summarize_jobs(data, previous=server.job_summary)
-        alerts = notify_job_alerts(server, summary)
+        summary = summarize_jobs(data)
+        mark_jobs_not_run(summary)
         server_info = summarize_server_info(data, previous=server.server_info)
-        alerts += notify_repository_alerts(server, server_info)
+        alerts = notify_repository_alerts(server, server_info)
         overdue_alerted = None
         try:
             from .backup_alerts import send_veeam_overdue_alerts
