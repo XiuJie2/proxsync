@@ -62,6 +62,8 @@ class OptimizedPVEToNetBoxSync:
         self.sync_config = {}
         self._newly_created_nodes: set = set()
         self._known_vmids: dict = {}  # populated at start of sync_pve_virtual_machines
+        # [(vmid, message)] for deleted VMs, sent after the task logs are read
+        self._deleted_vm_notices: list = []
 
         if self.enhanced_mode:
             try:
@@ -1402,7 +1404,7 @@ class OptimizedPVEToNetBoxSync:
                     f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                     f"⚠️ 此 VM 已從 Proxmox 中移除。"
                 )
-                self.send_telegram_notification(del_msg)
+                self._deleted_vm_notices.append((vmid, del_msg))
                 self._write_drift_event(vm_name, vmid, 'vm_deleted', 'vmid', str(vmid), '', notified=True)
 
         # ── 2. 主動清理：刪除 NetBox 中已不存在於 PVE 的 VM 及其 IP ──
@@ -1476,12 +1478,41 @@ class OptimizedPVEToNetBoxSync:
                         f"📅 時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                         f"⚠️ 此 VM 已從 Proxmox 刪除，NetBox 記錄已自動移除。"
                     )
-                    self.send_telegram_notification(del_msg)
+                    self._deleted_vm_notices.append((vmid_int, del_msg))
 
         except Exception as exc:
             import traceback
             print(f"⚠️ 清理孤兒 VM 失敗: {exc}")
             traceback.print_exc()
+
+    def _send_deleted_vm_notices(self):
+        """Send the deletions found by this sync, except VMs whose deletion
+        task was already announced (with its operator) by sync_vm_tasks."""
+        notices, self._deleted_vm_notices = self._deleted_vm_notices, []
+        if not notices:
+            return
+        announced = set()
+        try:
+            import datetime as _dt
+            from django.utils import timezone
+            from pve_sync_plugin.models import PveVmTaskLog
+
+            announced = set(
+                PveVmTaskLog.objects.filter(
+                    cluster_name=self.cluster_name,
+                    task_type="qmdestroy",
+                    vmid__in=[vmid for vmid, _ in notices],
+                    notified_telegram=True,
+                    start_time__gte=timezone.now() - _dt.timedelta(days=2),
+                ).values_list("vmid", flat=True)
+            )
+        except Exception as exc:
+            print(f"  ⚠️ 無法查詢 VM 刪除操作記錄: {exc}")
+        for vmid, msg in notices:
+            if vmid in announced:
+                print(f"  ℹ️ VMID {vmid} 的刪除已由操作記錄通知，不重複發送")
+                continue
+            self.send_telegram_notification(msg)
 
     def _apply_log_retention(self):
         """依 PvePluginSettings.log_retention_days 清理過期記錄。"""
@@ -1634,7 +1665,7 @@ class OptimizedPVEToNetBoxSync:
                         f"👤 操作者: <code>{operator}</code>\n"
                         f"📌 節點: <code>{node_name}</code>\n"
                         f"🔀 叢集: {self.cluster_name}\n"
-                        f"📅 時間: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+                        f"📅 時間: {timezone.localtime(start_dt).strftime('%Y-%m-%d %H:%M:%S')}"
                     )
                     self.send_telegram_notification(msg)
                     log.notified_telegram = True
@@ -2406,7 +2437,10 @@ class OptimizedPVEToNetBoxSync:
             print("✓ 節點同步成功")
             vms_success, success_count, total_count = self.sync_pve_virtual_machines(devices, cluster)
             print("\n同步 VM 操作記錄...")
-            self.sync_vm_tasks()
+            try:
+                self.sync_vm_tasks()
+            finally:
+                self._send_deleted_vm_notices()
             self._apply_log_retention()
             elapsed = time.time() - start_time
             self.stats['elapsed_time'] = elapsed
