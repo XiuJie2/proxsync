@@ -139,7 +139,7 @@
                 {% elif job.result == 'failed' %}<span class="badge text-bg-danger">Failed</span>
                 {% elif job.result == 'running' %}<span class="badge text-bg-primary">Running</span>
                 {% else %}<span class="badge text-bg-secondary">Never run</span>{% endif %}
-                {% if job.not_run %}<span class="badge text-bg-danger" title="超過 {{ not_run_hours }} 小時沒有執行">未依排程執行</span>{% endif %}
+                {% if job.not_run %}<span class="badge text-bg-danger" title="超過 {{ job.not_run_hours }} 小時沒有執行">未依排程執行</span>{% endif %}
               </td>
               <td class="text-nowrap">{% if job.start_dt %}{{ job.start_dt|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
               <td class="text-nowrap">{% if job.end_dt %}{{ job.end_dt|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
@@ -212,7 +212,7 @@
 <div class="row mt-3">
   <div class="col">
     <div class="card border-warning">
-      <h5 class="card-header">需注意的 VM（備份逾期 &gt;{{ veeam_overdue_days }} 天或最後一次失敗）</h5>
+      <h5 class="card-header">需注意的 VM（備份逾期或最後一次失敗；逾期：Everyday 任務 &gt;1 天、Everymonth 任務 &gt;31 天、其他 &gt;{{ veeam_overdue_days }} 天）</h5>
       <table class="table table-hover mb-0">
         <thead><tr><th>VM</th><th>Job</th><th>Last Result</th><th>Last Restore Point</th><th>Reason</th></tr></thead>
         <tbody>

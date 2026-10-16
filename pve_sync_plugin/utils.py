@@ -106,6 +106,39 @@ def get_threshold(key):
         return default
 
 
+# Veeam jobs are named after how often they run ("Everyday", "Backup Job
+# everyDay", "Everymonth"); overdue and not-run checks follow the name.
+VEEAM_JOB_PERIODS = ((r"every\s*day", 1), (r"every\s*month", 31))
+
+
+def veeam_job_period_days(job_name):
+    """Days between runs implied by a Veeam job name, or None when the name does not say."""
+    import re
+
+    for pattern, days in VEEAM_JOB_PERIODS:
+        if re.search(pattern, job_name or "", re.IGNORECASE):
+            return days
+    return None
+
+
+def veeam_overdue_days(job_name):
+    """Days without a new restore point before a VM in this job is overdue (0 = not checked)."""
+    default = get_threshold("backup_overdue_days_veeam")
+    if not default:
+        return 0
+    return veeam_job_period_days(job_name) or default
+
+
+def veeam_not_run_hours(job_name):
+    """Hours without a run before this job counts as not run (0 = not checked).
+    Jobs running less often than daily get their period plus one day."""
+    hours = get_threshold("veeam_job_not_run_hours")
+    period = veeam_job_period_days(job_name)
+    if hours and period and period > 1:
+        return (period + 1) * 24
+    return hours
+
+
 def send_backup_alert(text):
     """Send an HTML Telegram message to the backup-alert chat (falls back to the
     general chat). Returns True when Telegram accepted it, None when Telegram

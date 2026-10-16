@@ -803,12 +803,16 @@ class VeeamBackupStatus(NetBoxModel):
 
     @property
     def is_stale(self):
-        from .utils import get_threshold
-
         if not self.last_restore_point:
             return True
-        days = get_threshold("backup_overdue_days_veeam")
+        days = self.overdue_days
         return bool(days) and self.backup_age_days > days
+
+    @property
+    def overdue_days(self):
+        from .utils import veeam_overdue_days
+
+        return veeam_overdue_days(self.job_name)
 
     @property
     def has_problem(self):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import copy
 import importlib.util
@@ -63,11 +64,24 @@ class FakeServer:
     winrm_verify_ssl = False
 
 
+def _real_utils_functions(namespace, *names):
+    """Run the named definitions from utils.py (which needs Django to import)
+    inside ``namespace``, so the stub uses the real job-period logic."""
+    tree = ast.parse((PROJECT_ROOT / "pve_sync_plugin" / "utils.py").read_text())
+    wanted = [
+        node for node in tree.body
+        if getattr(node, "name", None) in names
+        or (isinstance(node, ast.Assign) and any(getattr(t, "id", None) in names for t in node.targets))
+    ]
+    exec(compile(ast.Module(body=wanted, type_ignores=[]), "utils.py", "exec"), namespace)
+
+
 @pytest.fixture
 def env(monkeypatch):
     """Load veeam.py with a stub plugin package and a recording Telegram sender."""
     sent = []
     thresholds = {
+        "backup_overdue_days_veeam": 7,
         "veeam_job_not_run_hours": 26,
         "veeam_repo_free_percent": 10,
     }
@@ -77,6 +91,9 @@ def env(monkeypatch):
     package.__path__ = [str(PROJECT_ROOT / "pve_sync_plugin")]
     utils = types.ModuleType("pve_sync_plugin.utils")
     utils.get_threshold = lambda key: thresholds[key]
+    _real_utils_functions(
+        utils.__dict__, "VEEAM_JOB_PERIODS", "veeam_job_period_days", "veeam_overdue_days", "veeam_not_run_hours"
+    )
 
     def send_backup_alert(text):
         sent.append(text)
@@ -298,3 +315,22 @@ def test_secret_encryption_round_trip(fields_module, monkeypatch):
 
     monkeypatch.setattr(settings, "SECRET_KEY", "another-key")
     assert fields_module.decrypt_secret(stored) == ""
+
+
+def test_job_period_follows_job_name(env):
+    utils = sys.modules["pve_sync_plugin.utils"]
+    assert utils.veeam_job_period_days("Everyday") == 1
+    assert utils.veeam_job_period_days("Backup Job everyDay") == 1
+    assert utils.veeam_job_period_days("Every Month") == 31
+    assert utils.veeam_job_period_days("Backup Job 1") is None
+    assert [utils.veeam_overdue_days(n) for n in ("Everyday", "Everymonth", "Backup Job 1")] == [1, 31, 7]
+    env.thresholds["backup_overdue_days_veeam"] = 0
+    assert utils.veeam_overdue_days("Everyday") == 0
+
+
+def test_monthly_job_not_run_after_a_month(env):
+    now = datetime.now(timezone.utc)
+    job = {"name": "Everymonth", "enabled": True, "result": "success"}
+    assert env.veeam._job_not_run({**job, "start": (now - timedelta(days=20)).isoformat()}, now) is False
+    assert env.veeam._job_not_run({**job, "start": (now - timedelta(days=33)).isoformat()}, now) is True
+    assert env.veeam._job_not_run({**job, "name": "Everyday", "start": (now - timedelta(days=2)).isoformat()}, now) is True

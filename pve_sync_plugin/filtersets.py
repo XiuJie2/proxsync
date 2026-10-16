@@ -258,13 +258,9 @@ class VeeamBackupStatusFilterSet(NetBoxModelFilterSet):
 
     @staticmethod
     def _stale_q():
-        from .utils import get_threshold
+        from .backup_alerts import veeam_stale_q
 
-        days = get_threshold("backup_overdue_days_veeam")
-        stale = Q(last_restore_point__isnull=True)
-        if days:
-            stale |= Q(last_restore_point__lt=timezone.now() - datetime.timedelta(days=days))
-        return stale
+        return veeam_stale_q()
 
     def filter_stale(self, queryset, name, value):
         stale = self._stale_q()

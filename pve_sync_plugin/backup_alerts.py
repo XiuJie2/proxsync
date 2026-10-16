@@ -1,6 +1,6 @@
 """Backup-overdue alerts. PBS and Veeam are checked independently: PBS covers
-VMs with the watch tag (minus the ignore tag), Veeam every VM it backs up;
-neither looks at the other.
+VMs with the watch tag (minus the ignore tag), Veeam every VM it backs up
+(overdue days follow the job name, e.g. Everyday); neither looks at the other.
 
 PBS alerts are sent after a PBS sync and Veeam alerts after a Veeam sync.
 The Dashboard counts use the same queries, so the numbers it shows are the
@@ -16,7 +16,7 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.utils import timezone
 
-from .utils import get_plugin_config, get_threshold, send_backup_alert
+from .utils import VEEAM_JOB_PERIODS, get_plugin_config, get_threshold, send_backup_alert
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +72,31 @@ def pbs_alert_q(prefix=""):
     return q
 
 
+def veeam_stale_q(prefix=""):
+    """Q on VeeamBackupStatus (or a model reaching it via ``prefix``) for rows
+    with no restore point or one older than the job's overdue days; the same
+    test as VeeamBackupStatus.is_stale."""
+    q = Q(**{f"{prefix}last_restore_point__isnull": True})
+    default = get_threshold("backup_overdue_days_veeam")
+    if not default:
+        return q
+    now = timezone.now()
+
+    def older_than(days):
+        # is_stale counts whole days, so "more than N days" starts at N + 1.
+        return Q(**{f"{prefix}last_restore_point__lte": now - datetime.timedelta(days=days + 1)})
+
+    unnamed = Q()
+    for pattern, days in VEEAM_JOB_PERIODS:
+        named = Q(**{f"{prefix}job_name__iregex": pattern})
+        q |= named & older_than(days)
+        unnamed &= ~named
+    return q | (unnamed & older_than(default))
+
+
 def veeam_alert_q(prefix=""):
     """Q on VeeamBackupStatus for rows that are alerted."""
-    q = Q(**{f"{prefix}last_restore_point__isnull": True}) | Q(**{f"{prefix}last_result": "failed"})
-    cutoff = _cutoff("backup_overdue_days_veeam")
-    if cutoff:
-        q |= Q(**{f"{prefix}last_restore_point__lt": cutoff})
-    return q
+    return veeam_stale_q(prefix) | Q(**{f"{prefix}last_result": "failed"})
 
 
 def pbs_alert_vms():

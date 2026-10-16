@@ -462,16 +462,21 @@ def summarize_jobs(data, previous=None):
 
 
 def _job_not_run(job, now=None):
-    """True when an enabled job has not started within the configured hours."""
-    from .utils import get_threshold
+    """True when an enabled job has not started within the configured hours
+    (a monthly job by its name gets a month)."""
+    from .utils import veeam_not_run_hours
 
-    hours = get_threshold("veeam_job_not_run_hours")
+    hours = veeam_not_run_hours(job.get("name"))
     if not hours or not job.get("enabled") or job.get("result") == "running":
         return False
     start = parse_time(job.get("start"))
     if start is None:
         return True
     return ((now or datetime.now(dt_timezone.utc)) - start).total_seconds() > hours * 3600
+
+
+def _hours_text(hours):
+    return f"{hours // 24} 天" if hours >= 48 and hours % 24 == 0 else f"{hours} 小時"
 
 
 def notify_job_alerts(server, summary):
@@ -481,7 +486,7 @@ def notify_job_alerts(server, summary):
     Marks reported entries in ``summary`` (mutated in place); also sets each
     job's ``not_run`` flag for display. Returns the number of alerts sent.
     """
-    from .utils import get_threshold, send_backup_alert
+    from .utils import send_backup_alert, veeam_not_run_hours
 
     sent = 0
     server_name = html.escape(server.name)
@@ -497,7 +502,7 @@ def notify_job_alerts(server, summary):
                 f"🗄️ 伺服器: {server_name}",
                 f"📋 任務: <b>{job_name}</b>",
                 f"📅 最後一次執行: {last}",
-                f"⚠️ 已超過 {get_threshold('veeam_job_not_run_hours')} 小時沒有執行，請確認排程與 Veeam 服務。",
+                f"⚠️ 已超過 {_hours_text(veeam_not_run_hours(job['name']))}沒有執行，請確認排程與 Veeam 服務。",
             ])
             result = send_backup_alert(text)
             if result is not False:

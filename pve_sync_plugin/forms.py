@@ -155,10 +155,13 @@ class VeeamBackupSettingsForm(_BackupSettingsForm):
             "veeam_repo_free_percent": "Repository 剩餘空間告警（%）",
         }
         help_texts = {
-            "backup_overdue_days_veeam": "Veeam 超過幾天沒有新還原點視為逾期（0 = 不檢查）",
+            "backup_overdue_days_veeam": (
+                "任務名稱不含 Everyday / Everymonth 時，超過幾天沒有新還原點視為逾期（0 = 全部不檢查）。"
+                "名稱含 Everyday 的任務固定 1 天、含 Everymonth 的固定 31 天。"
+            ),
             "veeam_job_not_run_hours": (
                 "已啟用的 Veeam 備份任務超過幾小時沒有執行就告警（0 = 不檢查）。"
-                "每日任務建議 26，每週任務請設大於 168。"
+                "名稱含 Everymonth 的任務固定 32 天。"
             ),
             "veeam_repo_free_percent": "Veeam Repository 剩餘空間低於幾 % 就告警（0 = 不檢查）",
         }

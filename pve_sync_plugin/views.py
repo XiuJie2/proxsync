@@ -79,7 +79,7 @@ from .tables import (
     VeeamServerConfigTable,
     VmProvisioningLogTable,
 )
-from .backup_alerts import monitored_vms, pbs_alert_count, veeam_alert_count
+from .backup_alerts import monitored_vms, pbs_alert_count, veeam_alert_count, veeam_alert_q
 from .tasks import enqueue_webhook_event
 from .utils import get_plugin_config, get_threshold
 from .view_helpers import (
@@ -124,20 +124,13 @@ class DashboardView(PermissionRequiredMixin, View):
             )
             pbs.backup_errors = (last_job.details or {}).get("backup_errors", []) if last_job else []
         veeam_overdue_days = get_threshold("backup_overdue_days_veeam")
-        # 0 disables the check: use a cutoff no restore point can be older than.
-        stale_cutoff = (
-            timezone.now() - timezone.timedelta(days=veeam_overdue_days)
-            if veeam_overdue_days else timezone.now() - timezone.timedelta(days=36500)
-        )
         veeam_servers = VeeamServerConfig.objects.filter(enabled=True).select_related(
             "netbox_device", "netbox_vm"
         ).annotate(
             vm_count=Count("backup_statuses", distinct=True),
             vm_problem_count=Count(
                 "backup_statuses",
-                filter=Q(backup_statuses__last_restore_point__isnull=True)
-                | Q(backup_statuses__last_restore_point__lt=stale_cutoff)
-                | Q(backup_statuses__last_result="failed"),
+                filter=veeam_alert_q("backup_statuses__"),
                 distinct=True,
             ),
         )
@@ -404,8 +397,15 @@ class VeeamServerConfigView(generic.ObjectView):
         statuses = instance.backup_statuses.select_related("vm")
         from .utils import get_threshold
 
+        from .utils import veeam_not_run_hours
+
         jobs = [
-            dict(job, start_dt=parse_time(job.get("start")), end_dt=parse_time(job.get("end")))
+            dict(
+                job,
+                start_dt=parse_time(job.get("start")),
+                end_dt=parse_time(job.get("end")),
+                not_run_hours=veeam_not_run_hours(job.get("name")),
+            )
             for job in instance.job_summary or []
         ]
         return {
