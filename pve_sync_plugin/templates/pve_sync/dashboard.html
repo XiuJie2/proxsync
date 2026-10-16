@@ -441,7 +441,7 @@
             <a href="{% url 'plugins:pve_sync_plugin:pvebackupstatus_list' %}?alerting=true" class="badge text-bg-{% if backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><i class="mdi mdi-shield-alert-outline text-warning me-1"></i> Veeam 備份異常（{% if backup_watch_tag %}標記 {{ backup_watch_tag }}，{% endif %}逾期 &gt;{{ veeam_overdue_days }} 天或失敗） <a href="{% url 'plugins:pve_sync_plugin:settings-veeam' %}" class="text-muted" title="設定逾期天數"><i class="mdi mdi-cog-outline"></i></a></span>
+            <span><i class="mdi mdi-shield-alert-outline text-warning me-1"></i> Veeam 備份異常（逾期 &gt;{{ veeam_overdue_days }} 天或失敗） <a href="{% url 'plugins:pve_sync_plugin:settings-veeam' %}" class="text-muted" title="設定逾期天數"><i class="mdi mdi-cog-outline"></i></a></span>
             <a href="{% url 'plugins:pve_sync_plugin:veeambackupstatus_list' %}?alerting=true" class="badge text-bg-{% if veeam_backup_alerts %}warning{% else %}success{% endif %} rounded-pill text-decoration-none">{{ veeam_backup_alerts }}</a>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">

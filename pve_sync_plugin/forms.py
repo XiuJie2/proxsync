@@ -88,12 +88,12 @@ class PvePluginSettingsForm(NetBoxModelForm):
             ),
             "webhook_secret": "HMAC shared secret for PVE webhook signature verification",
             "backup_watch_tag": (
-                "VM tag that opts a VM into backup-overdue monitoring (case-insensitive). "
-                "Leave blank to disable backup-overdue alerts entirely."
+                "VM tag that opts a VM into PBS backup-overdue monitoring (case-insensitive). "
+                "Leave blank to disable PBS backup-overdue alerts. Veeam does not use this tag."
             ),
             "backup_ignore_tag": (
-                "VM tag that excludes a VM from backup-overdue checks entirely "
-                "(case-insensitive) — for VMs that don't need backups."
+                "VM tag that excludes a VM from PBS backup-overdue checks "
+                "(case-insensitive) — for VMs that don't need backups. Veeam does not use this tag."
             ),
             "state_db_path": "Path to SQLite state database for incremental sync",
             "sync_failure_alert_count": "PBS / Veeam 同步連續失敗幾次就告警，恢復後會再通知一次（0 = 不告警）",

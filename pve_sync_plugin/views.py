@@ -598,6 +598,8 @@ class _BackupSettingsView(PermissionRequiredMixin, View):
     title = ""
     icon = ""
     list_url_name = None
+    # Only PBS monitoring follows the watch / ignore tags.
+    uses_tags = False
 
     def _render(self, request, form):
         settings_obj = PvePluginSettings.load()
@@ -607,6 +609,7 @@ class _BackupSettingsView(PermissionRequiredMixin, View):
             "icon": self.icon,
             "list_url": reverse(f"plugins:pve_sync_plugin:{self.list_url_name}"),
             "settings_obj": settings_obj,
+            "uses_tags": self.uses_tags,
         })
 
     def get(self, request):
@@ -627,6 +630,7 @@ class PbsBackupSettingsView(_BackupSettingsView):
     title = "PBS 備份設定"
     icon = "mdi-database-check"
     list_url_name = "pbsserverconfig_list"
+    uses_tags = True
 
 
 class VeeamBackupSettingsView(_BackupSettingsView):

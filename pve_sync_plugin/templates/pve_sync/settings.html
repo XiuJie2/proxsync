@@ -36,12 +36,13 @@
       </div>
 
       <div class="card mb-3">
-        <h5 class="card-header">備份監控（PBS / Veeam 共用）</h5>
+        <h5 class="card-header">備份監控</h5>
         <div class="card-body">
           {% render_field form.backup_watch_tag %}
           {% render_field form.backup_ignore_tag %}
           {% render_field form.sync_failure_alert_count %}
           <div class="small text-muted">
+            監控標籤與忽略標籤只用於 PBS；Veeam 監控所有它有備份的 VM，不看標籤。
             逾期天數等門檻請到
             <a href="{% url 'plugins:pve_sync_plugin:settings-pbs' %}">PBS 備份設定</a> 或
             <a href="{% url 'plugins:pve_sync_plugin:settings-veeam' %}">Veeam 備份設定</a>。
