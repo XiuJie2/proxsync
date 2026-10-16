@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 ALERT_INTERVAL = datetime.timedelta(hours=20)
 # Telegram allows about 20 messages a minute in a group.
 _SEND_GAP_SECONDS = 3
+# Leading icon of each product's alerts, so PBS and Veeam can be told apart.
+_PRODUCT_ICONS = {"PBS": "🟠", "Veeam": "🟢"}
 
 
 def monitored_vms(kind=None):
@@ -123,7 +125,7 @@ def _send_per_vm(kind, product, items):
             time.sleep(_SEND_GAP_SECONDS)
         cluster = labels.get(vm.cluster_id) or (vm.cluster.name if vm.cluster else "—")
         text = (
-            "🗄️ <b>VM 備份逾期警告</b>\n\n"
+            f"{_PRODUCT_ICONS[product]} <b>{product} 備份逾期警告</b>\n\n"
             f"🖥️ 名稱: <b>{html.escape(vm.name)}</b> (ID: {html.escape(vm.serial or '?')})\n"
             f"🔀 叢集: {html.escape(cluster)}\n"
             f"📅 時間: {timezone.localtime().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
