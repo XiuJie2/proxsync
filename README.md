@@ -531,6 +531,17 @@ MIT License
 
 ---
 
+## Maintainer
+
+This project is maintained by **Li Shi Jie (李仕傑)**.
+
+- **GitHub:** [@XiuJie2](https://github.com/XiuJie2)
+- **PyPI:** [lixiujie85](https://pypi.org/user/lixiujie85/)
+
+The GitHub account **@XiuJie2** and the PyPI maintainer account **lixiujie85** are both operated by Li Shi Jie.
+
+---
+
 ## 致謝
 
 - [Proxmox](https://www.proxmox.com/) — 優秀的虛擬化與備份平台
