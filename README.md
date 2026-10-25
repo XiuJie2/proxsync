@@ -49,7 +49,7 @@
 
 ### Telegram 通知
 
-![Telegram Notification](docs/screenshots/telegram-notification.png)
+![Telegram Notification](docs/screenshots/telegram-notification-small.png)
 
 ---
 
