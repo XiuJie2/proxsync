@@ -48,7 +48,8 @@ class OptimizedPVEToNetBoxSync:
             'node_mismatch_alerts': 0,
             'no_ip_alerts': 0,
             'ip_conflict_alerts': 0,
-            'power_state_alerts': 0,
+            'power_off_alerts': 0,
+            'power_on_alerts': 0,
             'total_vms': 0,
             'success_vms': 0,
             'elapsed_time': 0
@@ -271,8 +272,10 @@ class OptimizedPVEToNetBoxSync:
             extras.append(f"🌐 運行中但無 IP: {self.stats['no_ip_alerts']}")
         if self.stats.get('ip_conflict_alerts', 0) > 0:
             extras.append(f"🚨 IP 衝突: {self.stats['ip_conflict_alerts']}")
-        if self.stats.get('power_state_alerts', 0) > 0:
-            extras.append(f"⚠️ VM 意外關機: {self.stats['power_state_alerts']}")
+        if self.stats.get('power_off_alerts', 0) > 0:
+            extras.append(f"⚠️ VM 意外關機: {self.stats['power_off_alerts']}")
+        if self.stats.get('power_on_alerts', 0) > 0:
+            extras.append(f"⚠️ VM 意外開機: {self.stats['power_on_alerts']}")
         if extras:
             message += "\n🔍 檢測發現:\n" + "\n".join(extras)
         if self.error_log:
@@ -2054,7 +2057,7 @@ class OptimizedPVEToNetBoxSync:
 
 ❌ 虛擬機應處於開機狀態，請立即檢查。
 """
-                self.stats['power_state_alerts'] += 1
+                self.stats['power_off_alerts'] += 1
                 self.send_telegram_notification(message)
             elif first_tag == '0ff' and vm_status == 'running':
                 message = f"""
@@ -2067,7 +2070,7 @@ class OptimizedPVEToNetBoxSync:
 
 ⚠️ 虛擬機應處於關機狀態，請確認開機原因。
 """
-                self.stats['power_state_alerts'] += 1
+                self.stats['power_on_alerts'] += 1
                 self.send_telegram_notification(message)
 
         # 節點放置檢查：VM 描述 (Notes) 內若標記 "node: <預期節點>" 或
